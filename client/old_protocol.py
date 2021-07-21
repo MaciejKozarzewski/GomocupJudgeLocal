@@ -34,8 +34,8 @@ class old_protocol(object):
         
         self.color = 1
         self.piece = {}
-        for i in xrange(len(board)):
-            for j in xrange(len(board[i])):
+        for i in range(len(board)):
+            for j in range(len(board[i])):
                 if board[i][j][0] != 0:
                     self.piece[board[i][j][0]] = (i,j)
         
@@ -79,8 +79,8 @@ class old_protocol(object):
 
     def write_plocha(self):
         f = open(os.path.join(self.working_dir, "PLOCHA.DAT"), "w")
-        for i in xrange(len(self.board)):
-            for j in xrange(len(self.board[i])):
+        for i in range(len(self.board)):
+            for j in range(len(self.board[i])):
                 if self.board[i][j][1] == 0:
                     f.write("-")
                 elif self.board[i][j][1] == 1:
@@ -161,7 +161,7 @@ class old_protocol(object):
 def main():
     engine = old_protocol(
         cmd = "C:/Kai/git/GomocupJudge/engine/pisq7.exe",
-        board = [[(0,0) for i in xrange(20)] for j in xrange(20)],
+        board = [[(0,0) for i in range(20)] for j in range(20)],
         timeout_turn = 1000,
         timeout_match = 100000,
         max_memory = 350*1024*1024,
@@ -173,7 +173,7 @@ def main():
 
     msg, x, y = engine.start()
 
-    print msg, x, y
+    print(msg, x, y)
 
     engine.clean()
     

@@ -8,7 +8,7 @@ import re
 import os
 import hashlib
 import base64
-import Queue
+from queue import Queue
 import subprocess
 import random
 import ftplib
@@ -124,8 +124,8 @@ class Tournament:
         self.engine_ratings = engine_ratings
         self.rating_diff = rating_diff
         self.short_engines = self.get_short_engines(3)
-        print self.engines
-        print self.short_engines
+        print(self.engines)
+        print(self.short_engines)
         self.md5s = []
         for engine in self.engines:
             self.md5s.append(get_md5(curpath, engine))
@@ -883,7 +883,7 @@ def print_log(outstr, file=None):
     strdate = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(curtime))
     outstring = '[' + strdate + ']' + ' ' + outstr
     if not file:
-        print outstring
+        print(outstring)
         file = log_file
     fout = open(file, 'a')
     fout.write(outstring)
@@ -1161,13 +1161,13 @@ def ssh_quit():
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print 'Parameter error!'
+        print('Parameter error!')
         exit(-1)
 
     trecvs = {}
     clients_state = {}
-    input_queue = Queue.Queue(maxsize=0)
-    output_queue = Queue.Queue(maxsize=0)
+    input_queue = Queue(maxsize=0)
+    output_queue = Queue(maxsize=0)
 
     curpath = sys.path[0]
     curos = platform.system()
@@ -1273,7 +1273,7 @@ if __name__ == "__main__":
 
     while (True):
         cur_input = input_queue.get()
-        print cur_input
+        print(cur_input)
         inaddr = cur_input[0]
         instr = cur_input[1].strip()
         sinstr = re.split(r'\s', instr)
