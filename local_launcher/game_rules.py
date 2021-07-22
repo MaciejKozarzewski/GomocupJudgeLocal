@@ -1,6 +1,6 @@
 import numpy as np
 import copy
-from enum import IntEnum, Enum
+from enum import IntEnum
 
 '''
 All methods here returns true if stone at board[row][col] is a part of a winning line, false otherwise.
@@ -24,11 +24,11 @@ class Sign(IntEnum):
             return '|'
 
 
-class GameRules(Enum):
+class GameRules(IntEnum):
     FREESTYLE = 0
     STANDARD = 1
-    RENJU = 2
-    CARO = 4
+    RENJU = 4
+    CARO = 8
 
     def __str__(self) -> str:
         if self.value == GameRules.FREESTYLE:
@@ -203,23 +203,19 @@ def check_renju(board: np.ndarray, row: int, col: int) -> bool:
             x = self.x
             p = self.p
             for i in range(max(p - 4, 0), min(p, N - 5) + 1):
-                if x[i] + x[i + 1] + x[i + 2] + x[i + 3] + x[i + 4] == 4 and \
-                        x[i - 1] != 1 and x[i + 5] != 1:
+                if x[i] + x[i + 1] + x[i + 2] + x[i + 3] + x[i + 4] == 4 and x[i - 1] != 1 and x[i + 5] != 1:
                     if x[i + 4] == 0:  # XXXX_
                         return 1
                     elif x[i + 3] == 0:  # XXX_X
-                        if p == i + 4 and x[i + 5] == 0 and x[i + 6] == 1 and \
-                                x[i + 7] == 1 and x[i + 8] == 1 and x[i + 9] != 1:  # XXX_X_XXX
+                        if p == i + 4 and x[i + 5] == 0 and x[i + 6] == 1 and x[i + 7] == 1 and x[i + 8] == 1 and x[i + 9] != 1:  # XXX_X_XXX
                             return 2
                         return 1
                     elif x[i + 2] == 0:  # XX_XX
-                        if (p == i + 4 or p == i + 3) and x[i + 5] == 0 and \
-                                x[i + 6] == 1 and x[i + 7] == 1 and x[i + 8] != 1:  # XX_XX_XX
+                        if (p == i + 4 or p == i + 3) and x[i + 5] == 0 and x[i + 6] == 1 and x[i + 7] == 1 and x[i + 8] != 1:  # XX_XX_XX
                             return 2
                         return 1
                     elif x[i + 1] == 0:  # X_XXX
-                        if (x[i + 5] == 0 and x[i + 6] == 1 and x[i + 7] != 1) and \
-                                (p == i + 4 or p == i + 3 or p == i + 2):  # X_XXX_X
+                        if (x[i + 5] == 0 and x[i + 6] == 1 and x[i + 7] != 1) and (p == i + 4 or p == i + 3 or p == i + 2):  # X_XXX_X
                             return 2
                         return 1
                     else:  # _XXXX
