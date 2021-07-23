@@ -68,6 +68,7 @@ class Player:
 
     @staticmethod
     def _parse_move_from_string(msg: str, sign: Sign) -> Move:
+        assert sign == Sign.CROSS or sign == Sign.CIRCLE
         tmp = msg.split(',')
         assert len(tmp) == 2
         return Move(int(tmp[1]), int(tmp[0]), sign)

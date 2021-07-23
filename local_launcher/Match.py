@@ -86,13 +86,11 @@ class Match:
         print(self._game.to_string())
 
         '''now both players got board state and can make moves'''
-        while True:
+        while self._game.get_outcome() == GameOutcome.NO_OUTCOME:
             move = self._get_player_to_move().turn(self._game.get_last_move())
             self._game.make_move(move)
             print('move', self._game.number_of_moves())
             print(self._game.to_string())
-            if self._game.is_move_winning(move):
-                break
 
         return self._game.get_outcome()
 
@@ -107,7 +105,7 @@ class Match:
         elif outcome == GameOutcome.DRAW:
             tmp = '1/2-1/2'
         else:
-            return ''  # TODO maybe it's better to throw an exception here instead of returning empty PGN?
+            return ''  # TODO maybe it's better to throw an exception instead of returning empty PGN?
         result += '[Result ' + tmp + ']\n'
         result += '\n'
         result += '1. d4 d5 ' + tmp + '\n'
