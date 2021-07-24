@@ -4,7 +4,10 @@ import os
 import json
 import cv2
 import numpy as np
+from typing import Optional
 import time
+import sys
+import logging
 from Match import Match
 from Board import Board, Move, Sign
 from Player import Player
@@ -18,11 +21,12 @@ class PlayingThread(Thread):
         self._match = None
         self.start()
 
-    def draw(self) -> np.ndarray:
+    def draw(self) -> Optional[np.ndarray]:
         if self._match is not None:
-            return self._match.draw(30)
+            self._match.draw(30)
+            return self._match.get_frame()
         else:
-            return np.zeros((1, 1), dtype=np.uint8)
+            return None
 
     def _play_game(self, cfg_cross: dict, cfg_circle: dict, opening: str) -> None:
         self._match = Match(Board(self._config['game_config']), Player(cfg_cross), Player(cfg_circle), opening)
@@ -31,11 +35,14 @@ class PlayingThread(Thread):
     def run(self) -> None:
         while self._is_running:
             self._play_game(self._config['player_1'], self._config['player_2'], 'swap2')
-            print(self._match.generate_pgn())
             time.sleep(5.0)
             self._play_game(self._config['player_2'], self._config['player_1'], 'swap2')
 
             self._is_running = False
+
+    def cleanup(self) -> None:
+        if self._match is not None:
+            self._match.cleanup()
 
 
 class Tournament:
@@ -58,11 +65,32 @@ class Tournament:
         for i in range(self._config['tournament_config']['games_in_parallel']):
             self._threads.append(PlayingThread(self._config))
 
+        self._frame = None
+
     def draw(self) -> None:
-        img = self._threads[0].draw()
-        cv2.imshow('preview', img)
-        cv2.waitKey(100)
-        # cv2.destroyWindow('preview')
+        height = 0
+        width = 0
+        imgs = []
+        for t in self._threads:
+            tmp = t.draw()
+            if tmp is None:
+                return
+            imgs.append(tmp)
+            height = max(height, tmp.shape[0])
+            width += tmp.shape[1]
+
+        if self._frame is None:
+            self._frame = np.zeros((height, width, 3), dtype=np.uint8)
+        width = 0
+        for img in imgs:
+            self._frame[0:img.shape[0], width:width + img.shape[1], :] = img
+            width += img.shape[1]
+
+    def get_frame(self) -> np.ndarray:
+        if self._frame is None:
+            return np.zeros((1, 1, 3), dtype=np.uint8)
+        else:
+            return self._frame
 
     @staticmethod
     def _create_default_config() -> dict:
@@ -90,31 +118,11 @@ class Tournament:
 
 
 if __name__ == '__main__':
-    # player_1_config = {'command': '/home/maciek/Desktop/AlphaGomoku5/pbrain-AlphaGomoku_cpu.out',
-    #                    'name': 'AlphaGomoku_5_0_1',
-    #                    'timeout_turn': 5.0,  # in seconds
-    #                    'timeout_match': 120.0,  # in seconds
-    #                    'max_memory': 1024 * 1024 * 1024,  # in bytes
-    #                    'folder': './',
-    #                    'allow_pondering': False}
-    #
-    # player_2_config = {'command': '/home/maciek/Desktop/AlphaGomoku4/pbrain-AlphaGomoku64_cpu',
-    #                    'name': 'AlphaGomoku_4_0_0',
-    #                    'timeout_turn': 5.0,  # in seconds
-    #                    'timeout_match': 120.0,  # in seconds
-    #                    'max_memory': 1024 * 1024 * 1024,  # in bytes
-    #                    'folder': './',
-    #                    'allow_pondering': False}
-    #
-    # games_in_parallel = 1
-    # board_rows = 20
-    # board_cols = 20
-    # rules = GameRules.FREESTYLE
-    # pass
-    import sys
-    import logging
-
     # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
     tournament = Tournament('/home/maciek/Desktop/tournament/')
+
     while True:
         tournament.draw()
+        cv2.imshow('preview', tournament.get_frame())
+        cv2.waitKey(1000)
+    cv2.destroyWindow('preview')

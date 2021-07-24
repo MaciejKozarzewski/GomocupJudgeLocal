@@ -2,7 +2,6 @@ from Board import Board, Move, Sign, GameOutcome
 from Player import Player
 import copy
 from typing import Union
-from threading import Lock
 import numpy as np
 import cv2
 
@@ -14,7 +13,8 @@ class Match:
         self._board = board
         self._move_log = []
         self._opening = copy.deepcopy(opening)
-        self._board_lock = Lock()
+        self._frame = None
+        self._prev_number_of_moves = -1
 
     def _get_black_player(self) -> Player:
         if self._player1.get_sign() == Sign.BLACK:
@@ -34,16 +34,12 @@ class Match:
         else:
             return self._get_white_player()
 
-    def _get_board(self) -> Board:
-        with self._board_lock:
-            return self._board
-
     def _swap2(self) -> None:
         # first player chooses 3-stone opening
         player1_opening = self._player1.swap2board([])
         self._save_action(player1_opening)  # append opening for further PGN generation
         for m in player1_opening:
-            self._get_board().make_move(m)
+            self._board.make_move(m)
 
         player2_response = self._player2.swap2board(player1_opening)
         self._save_action(player2_response)
@@ -56,7 +52,7 @@ class Match:
         else:
             assert type(player2_response) == list
             for m in player2_response:
-                self._get_board().make_move(m)
+                self._board.make_move(m)
 
             if len(player2_response) == 1:  # player2 decides to stay with white
                 self._player1.set_sign(Sign.BLACK)
@@ -73,7 +69,7 @@ class Match:
                     return
                 else:  # player1 decides to stay with white
                     assert type(player1_decision) == list and len(player1_decision) == 1
-                    self._get_board().make_move(player1_decision[0])
+                    self._board.make_move(player1_decision[0])
                     self._player1.set_sign(Sign.WHITE)
                     self._player2.set_sign(Sign.BLACK)
                     return
@@ -97,8 +93,8 @@ class Match:
             raise Exception('incorrect type')
 
     def play_game(self) -> GameOutcome:
-        self._player1.start(self._get_board().rows(), self._get_board().cols(), self._get_board().rules())
-        self._player2.start(self._get_board().rows(), self._get_board().cols(), self._get_board().rules())
+        self._player1.start(self._board.rows(), self._board.cols(), self._board.rules())
+        self._player2.start(self._board.rows(), self._board.cols(), self._board.rules())
         self._move_log = []
 
         if self._opening == 'swap2':
@@ -110,25 +106,25 @@ class Match:
             for move in moves:
                 tmp = move.split(',')
                 self._save_action(move)
-                self._get_board().make_move(Move(int(tmp[0]), int(tmp[1]), self._get_board().get_sign_to_move()))
+                self._board.make_move(Move(int(tmp[0]), int(tmp[1]), self._board.get_sign_to_move()))
         '''now the opening is prepared'''
 
-        first_move = self._get_player_to_move().board(self._get_board().get_played_moves())
+        first_move = self._get_player_to_move().board(self._board.get_played_moves())
         self._save_action(first_move)
-        self._get_board().make_move(first_move)
+        self._board.make_move(first_move)
 
-        second_move = self._get_player_to_move().board(self._get_board().get_played_moves())
+        second_move = self._get_player_to_move().board(self._board.get_played_moves())
         self._save_action(second_move)
-        self._get_board().make_move(second_move)
+        self._board.make_move(second_move)
 
         '''now both players got board state and can make moves'''
         while self._board.get_outcome() == GameOutcome.NO_OUTCOME:
-            move = self._get_player_to_move().turn(self._get_board().get_last_move())
+            move = self._get_player_to_move().turn(self._board.get_last_move())
             self._save_action(move)
-            self._get_board().make_move(move)
+            self._board.make_move(move)
 
         self.cleanup()
-        return self._get_board().get_outcome()
+        return self._board.get_outcome()
 
     def cleanup(self) -> None:
         self._player1.end()
@@ -137,7 +133,7 @@ class Match:
     def generate_pgn(self) -> str:
         result = '[White \'' + self._get_white_player().get_name() + '\']\n'
         result += '[Black \'' + self._get_black_player().get_name() + '\']\n'
-        outcome = self._get_board().get_outcome()
+        outcome = self._board.get_outcome()
         if outcome == GameOutcome.WHITE_WIN:
             tmp = '1-0'
         elif outcome == GameOutcome.BLACK_WIN:
@@ -158,20 +154,25 @@ class Match:
                 result += ' ' + tmp + '\n'
         return result
 
-    def draw(self, size: int = 15) -> np.ndarray:
+    def draw(self, size: int = 15) -> None:
+        if self._board.number_of_moves() == self._prev_number_of_moves:
+            return  # do not redraw if no new moves werre played
+        else:
+            self._prev_number_of_moves = self._board.number_of_moves()
+
         height = (1 + 6 + self._board.rows() + 1) * size
         width = (1 + self._board.cols() + 1) * size
-        result = np.zeros((height, width, 3), dtype=np.uint8)
-        line_thickness = max(1, size // 10)
+        if self._frame is None:
+            self._frame = np.zeros((height, width, 3), dtype=np.uint8)
 
         '''fill background'''
-        cv2.rectangle(result, (0, 0), (width, height), color=(192, 192, 192), thickness=-1)
+        cv2.rectangle(self._frame, (0, 0), (width, height), color=(192, 192, 192), thickness=-1)
 
         '''highlight side to move'''
         if self._player1.is_on_move():
-            cv2.rectangle(result, (0, int(0.5 * size)), (width, int((0.5 + 3) * size)), color=(0, 255, 255), thickness=2)
+            cv2.rectangle(self._frame, (0, int(0.5 * size)), (width, int((0.5 + 3) * size)), color=(0, 255, 255), thickness=2)
         if self._player2.is_on_move():
-            cv2.rectangle(result, (0, int((0.5 + 3) * size)), (width, int((0.5 + 3 + 3) * size)), color=(0, 255, 255), thickness=2)
+            cv2.rectangle(self._frame, (0, int((0.5 + 3) * size)), (width, int((0.5 + 3 + 3) * size)), color=(0, 255, 255), thickness=2)
 
         def summarize_player(player: Player, x: int, y: int) -> None:
             text1 = player.get_name() + ' : ' + str(round(player.get_time_left(), 1)) + 's'
@@ -190,14 +191,14 @@ class Match:
             else:
                 color = (0, 0, 0)
                 thickness = 1
-            cv2.circle(result, (int(0.5 * size + y), x - int((1.75) * size)), size * 4 // 10, color, thickness=thickness)
-            cv2.putText(result, text1, (y + size, x - int(1.5 * size)), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
-            cv2.putText(result, text2, (y, x), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
+            cv2.circle(self._frame, (int(0.5 * size + y), x - int(1.8 * size)), size * 4 // 10, color, thickness=thickness)
+            cv2.putText(self._frame, text1, (y + size, x - int(1.5 * size)), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text2, (y, x), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
 
-            cv2.putText(result, text_depth, (y + 4 * size, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
-            cv2.putText(result, text_score, (y + 10 * size, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
-            cv2.putText(result, text_nodes, (y + 4 * size, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
-            cv2.putText(result, text_speed, (y + 10 * size, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text_depth, (y + 4 * size, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text_score, (y + 10 * size, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text_nodes, (y + 4 * size, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text_speed, (y + 10 * size, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
 
         '''print info about players'''
         summarize_player(self._player1, 3 * size, int(0.5 * size))
@@ -208,14 +209,14 @@ class Match:
             for j in range(self._board.cols() - 1):
                 x0 = int((1 + 6 + i + 0.5) * size)
                 y0 = int((1 + j + 0.5) * size)
-                cv2.rectangle(result, (y0, x0), (y0 + size, x0 + size), color=(0, 0, 0), thickness=1)
+                cv2.rectangle(self._frame, (y0, x0), (y0 + size, x0 + size), color=(0, 0, 0), thickness=1)
 
         '''highlight last move'''
         last_move = self._board.get_last_move()
         if last_move is not None:
             x0 = (1 + 6 + last_move.row) * size
             y0 = (1 + last_move.col) * size
-            cv2.rectangle(result, (y0, x0), (y0 + size, x0 + size), color=(0, 255, 255), thickness=1)
+            cv2.rectangle(self._frame, (y0, x0), (y0 + size, x0 + size), color=(0, 255, 255), thickness=1)
 
         '''draw all moves'''
         moves = self._board.get_played_moves()
@@ -223,15 +224,17 @@ class Match:
             x0 = int((1 + 6 + move.row + 0.5) * size)
             y0 = int((1 + move.col + 0.5) * size)
             if move.sign == Sign.BLACK:
-                cv2.circle(result, (y0, x0), size * 4 // 10, (0, 0, 0), thickness=-1)
+                cv2.circle(self._frame, (y0, x0), size * 4 // 10, (0, 0, 0), thickness=-1)
             else:
-                cv2.circle(result, (y0, x0), size * 4 // 10, (255, 255, 255), thickness=-1)
+                cv2.circle(self._frame, (y0, x0), size * 4 // 10, (255, 255, 255), thickness=-1)
 
         tmp_text = str(self._board.number_of_moves()) + ' move'
         if self._board.number_of_moves() > 1:
             tmp_text += 's'
-        cv2.putText(result, tmp_text, (size, height - size // 2), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
-        return result
+        cv2.putText(self._frame, tmp_text, (size, height - size // 2), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
+
+    def get_frame(self) -> np.ndarray:
+        return self._frame
 
     def text_summary(self) -> str:
         pass

@@ -74,7 +74,7 @@ class Player:
 
     def _parse_evaluation(self, text: str) -> dict:
         assert text.startswith('MESSAGE ')
-        result = {'memory': self.get_memory()}
+        result = {'memory': self.get_memory(), 'depth': '?', 'score': '?', 'nodes': '?', 'speed': '?', 'time': '?', 'pv': '?'}
         text.replace(', ', ' ')
         text.replace(' | ', ' ')
         text.replace('=', ' ')
@@ -123,15 +123,16 @@ class Player:
         return msg.startswith('MESSAGE') or msg.startswith('ERROR') or msg.startswith('UNKNOWN')
 
     def _send(self, msg: str) -> None:
-        # print '===>', msg
-        # sys.stdout.flush()
         self._message_log.append('received : ' + msg)
         logging.info('writing \'' + msg + '\' to engine \'' + self.get_name() + '\'')
 
         if msg[-1] != '\n':
             msg += '\n'
-        self._process.stdin.write(msg.encode())
-        self._process.stdin.flush()
+        try:
+            self._process.stdin.write(msg.encode())
+            self._process.stdin.flush()
+        except Exception as e:
+            pass
 
     def _receive(self, timeout: float) -> Optional[str]:
         result = ''
@@ -142,10 +143,8 @@ class Player:
             except Empty:
                 if get_time() - start > timeout:
                     break
-                time.sleep(0.01)
+                time.sleep(0.1)
             else:
-                # print '<===', buf
-                # sys.stdout.flush()
                 result += buf.decode('utf-8')
             if result.endswith('\n'):
                 self._message_log.append('answered : ' + result[:-1])
@@ -380,8 +379,16 @@ class Player:
         self._resume()
         self._send('END')
         time.sleep(self._tolerance)
-        if self._process.poll() is None:
-            # self.process.kill()
-            for pp in self._pp.children(recursive=True):
-                pp.kill()
-            self._pp.kill()
+        try:
+            if self.is_alive():
+                for pp in self._pp.children(recursive=True):
+                    pp.kill()
+                self._pp.kill()
+        except Exception as e:
+            pass
+
+    def is_alive(self) -> bool:
+        try:
+            return self._process.poll() is None
+        except:
+            return False
