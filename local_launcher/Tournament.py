@@ -5,9 +5,9 @@ import json
 import cv2
 import numpy as np
 import time
-from local_launcher.Match import Match
-from local_launcher.Game import Game, Move, Sign
-from local_launcher.Player import Player
+from Match import Match
+from Board import Board, Move, Sign
+from Player import Player
 
 
 class PlayingThread(Thread):
@@ -24,26 +24,16 @@ class PlayingThread(Thread):
         else:
             return np.zeros((1, 1), dtype=np.uint8)
 
+    def _play_game(self, cfg_cross: dict, cfg_circle: dict, opening: str) -> None:
+        self._match = Match(Board(self._config['game_config']), Player(cfg_cross), Player(cfg_circle), opening)
+        self._match.play_game()
+
     def run(self) -> None:
         while self._is_running:
-            game = Game(self._config['game_config'])
-            player_1 = Player(self._config['player_1'])
-            player_2 = Player(self._config['player_2'])
-
-            player_1.set_sign(Sign.CROSS)
-            player_2.set_sign(Sign.CIRCLE)
-
-            self._match = Match(game, player_1, player_2, 'swap2')
-            self._match.play_game()
-
+            self._play_game(self._config['player_1'], self._config['player_2'], 'swap2')
             time.sleep(5.0)
-            game = Game(self._config['game_config'])
-            player_1 = Player(self._config['player_1'])
-            player_2 = Player(self._config['player_2'])
-            player_1.set_sign(Sign.CIRCLE)
-            player_2.set_sign(Sign.CROSS)
-            self._match = Match(game, player_2, player_1, 'swap2')
-            self._match.play_game()
+            self._play_game(self._config['player_2'], self._config['player_1'], 'swap2')
+
             self._is_running = False
 
 
@@ -66,27 +56,6 @@ class Tournament:
         self._threads = []
         for i in range(self._config['tournament_config']['games_in_parallel']):
             self._threads.append(PlayingThread(self._config))
-
-    def _play_game(self) -> None:
-        game = Game(self._config['game_config'])
-        player_1 = Player(self._config['player_1'])
-        player_2 = Player(self._config['player_2'])
-
-        player_1.set_sign(Sign.CROSS)
-        player_2.set_sign(Sign.CIRCLE)
-
-        match = Match(game, player_1, player_2)
-        playing_thread = Thread()
-        game.make_move(Move(4, 4, Sign.CROSS))
-        game.make_move(Move(4, 5, Sign.CIRCLE))
-        game.make_move(Move(4, 6, Sign.CROSS))
-        img = match.draw(20)
-        cv2.imshow('preview', img)
-        cv2.waitKey(0)
-        cv2.destroyWindow('preview')
-
-        with self._tournament_lock:
-            pass
 
     def draw(self) -> None:
         img = self._threads[0].draw()

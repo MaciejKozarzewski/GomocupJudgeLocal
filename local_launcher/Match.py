@@ -1,110 +1,119 @@
-from local_launcher.Game import Game, Move, Sign, GameOutcome
-from local_launcher.Player import Player
+from Board import Board, Move, Sign, GameOutcome
+from Player import Player
 import copy
+from threading import Lock
 import numpy as np
 import cv2
 
 
 class Match:
-    def __init__(self, game: Game, cross_player: Player, circle_player: Player, opening: str = ''):
-        assert cross_player.get_sign() == Sign.CROSS
-        assert circle_player.get_sign() == Sign.CIRCLE
-        self._cross_player = cross_player
-        self._circle_player = circle_player
-        self._game = game
+    def __init__(self, board: Board, player1: Player, player2: Player, opening: str = ''):
+        self._player1 = player1
+        self._player2 = player2
+        self._board = board
         self._command_log = []
         self._opening = copy.deepcopy(opening)
+        self._board_lock = Lock()
+
+    def _get_black_player(self) -> Player:
+        if self._player1.get_sign() == Sign.BLACK:
+            return self._player1
+        else:
+            return self._player2
+
+    def _get_white_player(self) -> Player:
+        if self._player1.get_sign() == Sign.WHITE:
+            return self._player1
+        else:
+            return self._player2
 
     def _get_player_to_move(self) -> Player:
-        if self._game.get_sign_to_move() == Sign.CROSS:
-            return self._cross_player
+        if self._board.get_sign_to_move() == Sign.BLACK:
+            return self._get_black_player()
         else:
-            return self._circle_player
+            return self._get_white_player()
 
-    def _swap2board(self) -> None:
-        def swap_players() -> None:
-            tmp = self._cross_player
-            self._cross_player = self._circle_player
-            self._circle_player = tmp
-            self._cross_player.set_sign(Sign.CROSS)
-            self._circle_player.set_sign(Sign.CIRCLE)
+    def _get_board(self) -> Board:
+        with self._board_lock:
+            return self._board
 
-        '''cross (black) player places first three stones'''
-        black_opening = self._cross_player.swap2board([])
-        for m in black_opening:
-            self._game.make_move(m)
+    def _swap2(self) -> None:
+        # first player chooses 3-stone opening
+        player1_opening = self._player1.swap2board([])
+        for m in player1_opening:
+            self._get_board().make_move(m)
 
-        '''circle (white) player responds to the 3-stone opening'''
-        white_response = self._circle_player.swap2board(black_opening)
-        if type(white_response) == str:
-            assert str(white_response) == 'SWAP'
-            swap_players()
+        player2_response = self._player2.swap2board(player1_opening)
+        if type(player2_response) == str:  # player2 decides to swap and therefore play as black
+            assert str(player2_response) == 'SWAP'
+            self._player1.set_sign(Sign.WHITE)
+            self._player2.set_sign(Sign.BLACK)
             return
         else:
-            assert type(white_response) == list
-            for m in white_response:
-                self._game.make_move(m)
+            assert type(player2_response) == list
+            for m in player2_response:
+                self._get_board().make_move(m)
 
-            if len(white_response) == 1:  # only 4th move was returned
+            if len(player2_response) == 1:  # player2 decides to stay with white
+                self._player1.set_sign(Sign.BLACK)
+                self._player2.set_sign(Sign.WHITE)
                 return
-            elif len(white_response) == 2:  # 4th and 5th moves was returned
-                black_decision = self._cross_player.swap2board(black_opening + white_response)
-                if type(black_decision) == str:
-                    assert str(black_decision) == 'SWAP'
-                    swap_players()
+            elif len(player2_response) == 2:  # player2 decides to balance the position and let player1 choose the color
+                player1_decision = self._player1.swap2board(player1_opening + player2_response)
+                if type(player1_decision) == str:  # player1 decides to swap and therefore play as black
+                    assert str(player1_decision) == 'SWAP'
+                    self._player1.set_sign(Sign.BLACK)
+                    self._player2.set_sign(Sign.WHITE)
                     return
-                else:
-                    assert type(black_decision) == list and len(black_decision) == 1
-                    self._game.make_move(black_decision[0])
+                else:  # player1 decides to stay with white
+                    assert type(player1_decision) == list and len(player1_decision) == 1
+                    self._get_board().make_move(player1_decision[0])
+                    self._player1.set_sign(Sign.WHITE)
+                    self._player2.set_sign(Sign.BLACK)
                     return
             else:
                 raise Exception('too many balancing stones')
 
     def play_game(self) -> GameOutcome:
-        self._cross_player.start(self._game.rows(), self._game.cols(), self._game.rules())
-        self._circle_player.start(self._game.rows(), self._game.cols(), self._game.rules())
+        self._player1.start(self._get_board().rows(), self._get_board().cols(), self._get_board().rules())
+        self._player2.start(self._get_board().rows(), self._get_board().cols(), self._get_board().rules())
 
         if self._opening == 'swap2':
-            self._swap2board()
+            self._swap2()
         elif len(self._opening) > 0:
+            self._player1.set_sign(Sign.BLACK)
+            self._player2.set_sign(Sign.WHITE)
             moves = self._opening.split(' ')
             for move in moves:
                 tmp = move.split(',')
-                self._game.make_move(Move(int(tmp[0]), int(tmp[1]), self._game.get_sign_to_move()))
+                self._get_board().make_move(Move(int(tmp[0]), int(tmp[1]), self._get_board().get_sign_to_move()))
         '''now the opening is prepared'''
 
-        first_move = self._get_player_to_move().board(self._game.get_played_moves())
-        self._game.make_move(first_move)
-        print('move', self._game.number_of_moves())
-        print(self._game.to_string())
+        first_move = self._get_player_to_move().board(self._get_board().get_played_moves())
+        self._get_board().make_move(first_move)
 
-        second_move = self._get_player_to_move().board(self._game.get_played_moves())
-        self._game.make_move(second_move)
-        print('move', self._game.number_of_moves())
-        print(self._game.to_string())
+        second_move = self._get_player_to_move().board(self._get_board().get_played_moves())
+        self._get_board().make_move(second_move)
 
         '''now both players got board state and can make moves'''
-        while self._game.get_outcome() == GameOutcome.NO_OUTCOME:
-            move = self._get_player_to_move().turn(self._game.get_last_move())
-            self._game.make_move(move)
-            print('move', self._game.number_of_moves())
-            print(self._game.to_string())
+        while self._board.get_outcome() == GameOutcome.NO_OUTCOME:
+            move = self._get_player_to_move().turn(self._get_board().get_last_move())
+            self._get_board().make_move(move)
 
-        print(self._game.get_outcome())
         self.cleanup()
-        return self._game.get_outcome()
+        return self._get_board().get_outcome()
 
     def cleanup(self) -> None:
-        self._cross_player.end()
-        self._circle_player.end()
+        self._player1.end()
+        self._player2.end()
 
     def generate_pgn(self) -> str:
-        result = '[White \'' + self._cross_player.get_name() + '\']\n'
-        result += '[Black \'' + self._circle_player.get_name() + '\']\n'
-        outcome = self._game.get_outcome()
-        if outcome == GameOutcome.CROSS_WIN:
+        result = '[White \'' + self._get_white_player().get_name() + '\']\n'
+        result += '[Black \'' + self._get_black_player().get_name() + '\']\n'
+        outcome = self._get_board().get_outcome()
+        if outcome == GameOutcome.BLACK_WIN:
             tmp = '1-0'
-        elif outcome == GameOutcome.CIRCLE_WIN:
+        elif outcome == GameOutcome.WHITE_WIN:
             tmp = '0-1'
         elif outcome == GameOutcome.DRAW:
             tmp = '1/2-1/2'
@@ -116,8 +125,8 @@ class Match:
         return result
 
     def draw(self, size: int = 15) -> np.ndarray:
-        height = (1 + 6 + self._game.rows() + 1) * size
-        width = (1 + self._game.cols() + 1) * size
+        height = (1 + 6 + self._board.rows() + 1) * size
+        width = (1 + self._board.cols() + 1) * size
         result = np.zeros((height, width, 3), dtype=np.uint8)
         line_thickness = max(1, size // 10)
 
@@ -125,45 +134,69 @@ class Match:
         cv2.rectangle(result, (0, 0), (width, height), color=(192, 192, 192), thickness=-1)
 
         '''highlight side to move'''
-        if self._cross_player.is_on_move():
-            cv2.rectangle(result, (0, int(0.5 * size)), (width, int((0.5 + 3) * size)), color=(224, 224, 224), thickness=-1)
-        if self._circle_player.is_on_move():
-            cv2.rectangle(result, (0, int((0.5 + 3) * size)), (width, int((0.5 + 3 + 3) * size)), color=(224, 224, 224), thickness=-1)
+        if self._player1.is_on_move():
+            cv2.rectangle(result, (0, int(0.5 * size)), (width, int((0.5 + 3) * size)), color=(0, 255, 255), thickness=2)
+        if self._player2.is_on_move():
+            cv2.rectangle(result, (0, int((0.5 + 3) * size)), (width, int((0.5 + 3 + 3) * size)), color=(0, 255, 255), thickness=2)
 
-        def summarize_player(player: Player, x: int, y: int, color: tuple) -> None:
+        def summarize_player(player: Player, x: int, y: int) -> None:
             text1 = player.get_name() + ' : ' + str(round(player.get_time_left(), 1)) + 's'
-            text2 = str(player.get_memory() // (1024 * 1024)) + 'MB, ' + player.get_evaluation()
-            cv2.putText(result, text1, (y, x - int(1.5 * size)), cv2.QT_FONT_NORMAL, 0.8, color=color, thickness=1)
-            cv2.putText(result, text2, (y, x), cv2.QT_FONT_NORMAL, 0.6, color=color, thickness=1)
+            eval = player.get_evaluation()
+            text2 = str(eval['memory'] // (1024 * 1024)) + 'MB'
+            text_depth = 'depth = ' + eval['depth']
+            text_score = 'score = ' + eval['score']
+            text_nodes = 'nodes = ' + eval['nodes']
+            text_speed = 'speed = ' + eval['speed']
+            if player.get_sign() == Sign.BLACK:
+                color = (0, 0, 0)
+                thickness = -1
+            elif player.get_sign() == Sign.WHITE:
+                color = (255, 255, 255)
+                thickness = -1
+            else:
+                color = (0, 0, 0)
+                thickness = 1
+            cv2.circle(result, (int(0.5 * size + y), x - int((1.75) * size)), size * 4 // 10, color, thickness=thickness)
+            cv2.putText(result, text1, (y + size, x - int(1.5 * size)), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
+            cv2.putText(result, text2, (y, x), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
+
+            cv2.putText(result, text_depth, (y + 4 * size, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(result, text_score, (y + 10 * size, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(result, text_nodes, (y + 4 * size, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(result, text_speed, (y + 10 * size, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
 
         '''print info about players'''
-        summarize_player(self._cross_player, 3 * size, int(0.5 * size), (255, 0, 0))
-        summarize_player(self._circle_player, 6 * size, int(0.5 * size), (0, 0, 255))
+        summarize_player(self._player1, 3 * size, int(0.5 * size))
+        summarize_player(self._player2, 6 * size, int(0.5 * size))
 
         '''draw board lines'''
-        for i in range(self._game.rows()):
-            for j in range(self._game.cols()):
-                x0 = (1 + 6 + i) * size
-                y0 = (1 + j) * size
+        for i in range(self._board.rows() - 1):
+            for j in range(self._board.cols() - 1):
+                x0 = int((1 + 6 + i + 0.5) * size)
+                y0 = int((1 + j + 0.5) * size)
                 cv2.rectangle(result, (y0, x0), (y0 + size, x0 + size), color=(0, 0, 0), thickness=1)
 
         '''highlight last move'''
-        last_move = self._game.get_last_move()
+        last_move = self._board.get_last_move()
         if last_move is not None:
             x0 = (1 + 6 + last_move.row) * size
             y0 = (1 + last_move.col) * size
             cv2.rectangle(result, (y0, x0), (y0 + size, x0 + size), color=(0, 255, 255), thickness=1)
 
         '''draw all moves'''
-        moves = self._game.get_played_moves()
+        moves = self._board.get_played_moves()
         for move in moves:
-            x0 = (1 + 6 + move.row) * size
-            y0 = (1 + move.col) * size
-            if move.sign == Sign.CROSS:
-                cv2.line(result, (y0 + size // 10, x0 + size // 10), (y0 + size - size // 10, x0 + size - size // 10), color=(255, 0, 0), thickness=line_thickness)
-                cv2.line(result, (y0 + size - size // 10, x0 + size // 10), (y0 + size // 10, x0 + size - size // 10), color=(255, 0, 0), thickness=line_thickness)
+            x0 = int((1 + 6 + move.row + 0.5) * size)
+            y0 = int((1 + move.col + 0.5) * size)
+            if move.sign == Sign.BLACK:
+                cv2.circle(result, (y0, x0), size * 4 // 10, (0, 0, 0), thickness=-1)
             else:
-                cv2.circle(result, (y0 + size // 2, x0 + size // 2), (size * 4 // 10), color=(0, 0, 255), thickness=line_thickness)
+                cv2.circle(result, (y0, x0), size * 4 // 10, (255, 255, 255), thickness=-1)
+
+        tmp_text = str(self._board.number_of_moves()) + ' move'
+        if self._board.number_of_moves() > 1:
+            tmp_text += 's'
+        cv2.putText(result, tmp_text, (size, height - size // 2), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
         return result
 
     def text_summary(self) -> str:

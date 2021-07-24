@@ -3,21 +3,20 @@ import psutil
 import copy
 import sys
 from typing import Union, Optional
-from utility import *
 from queue import Queue, Empty
 from threading import Thread
 import logging
 import time
 
-from local_launcher.Game import Move, Sign, GameRules
-from local_launcher.utils import get_time, get_value
+from Board import Move, Sign, GameRules
+from utils import get_time, get_value
 
 
 class Player:
     def __init__(self, config: dict):
         self._sign = Sign.EMPTY
         self._command = get_value(config, 'command')
-        self._name = get_value(config, 'name', self._command)
+        self._name = None
         self._timeout_turn = get_value(config, 'timeout_turn', 5.0)
         self._timeout_match = get_value(config, 'timeout_match', 12.0)
         self._time_left = self._timeout_match
@@ -50,13 +49,71 @@ class Player:
         self._suspend()
 
         self._message_log = []
-        self._evaluation = ''
+        self._evaluation = {}
         self._is_now_on_move = False
         self._start_time = time.time()
+        self._name = get_value(config, 'name', self._parse_name())  # engine name can be obtained only after the process has started, obviously...
+
+    def _parse_name(self) -> str:
+        self._resume()
+        self._send('ABOUT')
+        answer = self._get_response(self._time_left)
+        fields = answer.split(',')
+        informations = {}
+        for field in fields:
+            tmp = field.strip().split('=')
+            informations[tmp[0]] = tmp[1].strip('"')
+
+        result = ''
+        if 'name' in informations:
+            result += informations['name']
+            if 'version' in informations:
+                result += ' ' + informations['version']
+        self._suspend()
+        return result
+
+    def _parse_evaluation(self, text: str) -> dict:
+        assert text.startswith('MESSAGE ')
+        result = {'memory': self.get_memory()}
+        text.replace(', ', ' ')
+        text.replace(' | ', ' ')
+        text.replace('=', ' ')
+        text.replace(':', ' ')
+        text.replace(',', ' ')
+        words = text[8:].split(' ')
+
+        def find_info(name: str, keywords: list) -> None:
+            for keyword in keywords:
+                if keyword in words:
+                    idx = words.index(keyword)
+                    if idx + 1 < len(words):
+                        result[name] = words[idx + 1]
+                        return
+            result[name] = '?'
+
+        # [Embryo, AG], [PentaZen]
+        find_info('depth', ['depth', 'dep'])
+
+        # [Embryo, AG], [Barbakan], [Carbon], [Katagomo], [Pentazen]
+        find_info('score', ['ev', 'value', 'eval', 'Winrate', 'sc'])
+
+        # [Embryo, AG], [Barbakan], [Katagomo], [Pentazen]
+        find_info('nodes', ['n', 'called', 'Visits', 'nd'])
+
+        # [Embryo], [AG], [Carbon], [Pentazen]
+        find_info('speed', ['n/s', 'n/ms', 'speed', 'sp'])
+
+        # [Embryo, AG], [Katagomo]
+        find_info('time', ['tm', 'Time'])
+
+        # [Embryo, AG], [Katagomo]
+        find_info('pv', ['pv', 'PV'])
+
+        return result
 
     @staticmethod
     def _parse_move_from_string(msg: str, sign: Sign) -> Move:
-        assert sign == Sign.CROSS or sign == Sign.CIRCLE
+        assert sign == Sign.BLACK or sign == Sign.WHITE
         tmp = msg.split(',')
         assert len(tmp) == 2
         return Move(int(tmp[1]), int(tmp[0]), sign)
@@ -69,22 +126,21 @@ class Player:
         # print '===>', msg
         # sys.stdout.flush()
         self._message_log.append('received : ' + msg)
-        logging.info('writing \'' + msg + '\' to engine \'' + self._name + '\'')
+        logging.info('writing \'' + msg + '\' to engine \'' + self.get_name() + '\'')
 
         if msg[-1] != '\n':
             msg += '\n'
         self._process.stdin.write(msg.encode())
         self._process.stdin.flush()
 
-    def _receive(self) -> Optional[str]:
+    def _receive(self, timeout: float) -> Optional[str]:
         result = ''
-        timeout_sec = self._tolerance + min(self._time_left, self._timeout_turn)
         start = get_time()
         while True:
             try:
                 buf = self._queue.get_nowait()
             except Empty:
-                if get_time() - start > timeout_sec:
+                if get_time() - start > timeout:
                     break
                 time.sleep(0.01)
             else:
@@ -93,7 +149,7 @@ class Player:
                 result += buf.decode('utf-8')
             if result.endswith('\n'):
                 self._message_log.append('answered : ' + result[:-1])
-                logging.info('received \'' + result[:-1] + '\' from engine \'' + self._name + '\'')
+                logging.info('received \'' + result[:-1] + '\' from engine \'' + self.get_name() + '\'')
                 return result[:-1]  # remove new line character at the end
         return None
 
@@ -111,14 +167,14 @@ class Player:
             except Exception as e:
                 logging.error(str(e))
 
-    def _get_response(self) -> str:
+    def _get_response(self, timeout: float) -> str:
         while True:
-            answer = self._receive()
+            answer = self._receive(timeout)
             if answer is None:
                 raise Exception('player has not responded correctly')
             elif self._is_message(answer):
                 if answer.startswith('MESSAGE'):
-                    self._evaluation = answer[8:]
+                    self._evaluation = self._parse_evaluation(answer)
             else:
                 return answer
 
@@ -131,7 +187,10 @@ class Player:
         self._time_left -= (get_time() - self._start_time)
 
     def get_name(self) -> str:
-        return self._name
+        if self._name is None or self._name == '':
+            return self._command
+        else:
+            return self._name
 
     def get_sign(self) -> Sign:
         return self._sign
@@ -162,7 +221,8 @@ class Player:
         else:
             return self._time_left
 
-    def get_evaluation(self) -> str:
+    def get_evaluation(self) -> dict:
+        self._evaluation['memory'] = self.get_memory()
         return self._evaluation
 
     def is_on_move(self) -> bool:
@@ -183,7 +243,7 @@ class Player:
         else:
             self._send('RECTSTART ' + str(columns) + ',' + str(rows))
 
-        answer = self._get_response()
+        answer = self._get_response(self._tolerance + min(self._time_left, self._timeout_turn))
         if answer != 'OK':
             raise Exception('player has not responded \'OK\' to START command')
 
@@ -227,7 +287,7 @@ class Player:
                     self._send(str(move.col) + ',' + str(move.row) + ',2')
             self._send('DONE')
         self._is_now_on_move = True
-        answer = self._get_response()
+        answer = self._get_response(self._tolerance + min(self._time_left, self._timeout_turn))
         self._is_now_on_move = False
 
         self._suspend()
@@ -240,6 +300,7 @@ class Player:
         If list of moves is empty, the engine will be asked to place first three stones.
         If list of moves has three elements, the engine will be asked to either swap, place 4th move, or two balancing moves.
         If list of moves has five elements, the engine will be asked to either swap or place 6th move.
+        The engine does not have to obey the timeout_turn limit, only time_left.
 
         :param list_of_moves: list of moves that were already played
         :return: either string 'SWAP' or list of moves proposed by the engine
@@ -248,26 +309,24 @@ class Player:
         self._resume()
         self.info('time_left ' + str(int(1000 * self._time_left)))
         if len(list_of_moves) == 0:
-            assert self._sign == Sign.CROSS
             self._send('SWAP2BOARD')
             self._send('DONE')
-            answer = self._get_response()
+            answer = self._get_response(self._tolerance + self._time_left)
             self._suspend()
             self._timer_stop()
 
             tmp = answer.split(' ')
             assert len(tmp) == 3
-            result = [self._parse_move_from_string(tmp[0], Sign.CROSS),
-                      self._parse_move_from_string(tmp[1], Sign.CIRCLE),
-                      self._parse_move_from_string(tmp[2], Sign.CROSS)]
+            result = [self._parse_move_from_string(tmp[0], Sign.BLACK),
+                      self._parse_move_from_string(tmp[1], Sign.WHITE),
+                      self._parse_move_from_string(tmp[2], Sign.BLACK)]
             return result
         elif len(list_of_moves) == 3:
-            assert self._sign == Sign.CIRCLE
             self._send('SWAP2BOARD')
             for m in list_of_moves:
                 self._send(str(m.col) + ',' + str(m.row))
             self._send('DONE')
-            answer = self._get_response()
+            answer = self._get_response(self._tolerance + self._time_left)
             self._suspend()
             self._timer_stop()
 
@@ -276,21 +335,20 @@ class Player:
             else:
                 tmp = answer.split(' ')
                 if len(tmp) == 1:
-                    result = [self._parse_move_from_string(tmp[0], Sign.CIRCLE)]
+                    result = [self._parse_move_from_string(tmp[0], Sign.WHITE)]
                     return result
                 elif len(tmp) == 2:
-                    result = [self._parse_move_from_string(tmp[0], Sign.CIRCLE),
-                              self._parse_move_from_string(tmp[1], Sign.CROSS)]
+                    result = [self._parse_move_from_string(tmp[0], Sign.WHITE),
+                              self._parse_move_from_string(tmp[1], Sign.BLACK)]
                     return result
                 else:
                     raise Exception('incorrect answer for 3-stone opening')
         elif len(list_of_moves) == 5:
-            assert self._sign == Sign.CROSS
             self._send('SWAP2BOARD')
             for m in list_of_moves:
                 self._send(str(m.col) + ',' + str(m.row))
             self._send('DONE')
-            answer = self._get_response()
+            answer = self._get_response(self._tolerance + self._time_left)
             self._suspend()
             self._timer_stop()
 
@@ -299,7 +357,7 @@ class Player:
             else:
                 tmp = answer.split(' ')
                 assert len(tmp) == 1
-                return [self._parse_move_from_string(tmp[0], Sign.CIRCLE)]
+                return [self._parse_move_from_string(tmp[0], Sign.WHITE)]
         else:
             raise Exception('too many stones placed in swap2')
 
@@ -312,7 +370,7 @@ class Player:
         self._resume()
         self.info('time_left ' + str(int(1000 * self._time_left)))
         self._send('TURN ' + str(last_move.col) + ',' + str(last_move.row))
-        answer = self._get_response()
+        answer = self._get_response(self._tolerance + min(self._time_left, self._timeout_turn))
         self._suspend()
 
         self._timer_stop()

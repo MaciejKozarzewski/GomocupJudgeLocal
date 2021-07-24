@@ -11,16 +11,16 @@ All methods here returns true if stone at board[row][col] is a part of a winning
 
 class Sign(IntEnum):
     EMPTY = 0
-    CROSS = 1  # or black (starts as first player)
-    CIRCLE = 2  # or white (starts as second player)
+    BLACK = 1
+    WHITE = 2
     OUT_OF_BOARD = 3
 
     def __str__(self) -> str:
         if self.value == Sign.EMPTY:
             return '_'
-        elif self.value == Sign.CROSS:
+        elif self.value == Sign.BLACK:
             return 'X'
-        elif self.value == Sign.CIRCLE:
+        elif self.value == Sign.WHITE:
             return 'O'
         else:
             return '|'
@@ -107,9 +107,9 @@ class Line:
         return result
 
     def _has_pattern(self, sign: Sign, list_of_patterns: list) -> bool:
-        if sign == Sign.CROSS or sign == Sign.CIRCLE:
+        if sign == Sign.BLACK or sign == Sign.WHITE:
             '''patterns are defined for cross, so to handle circles we have to invert signs'''
-            tmp_line = self._line if sign == Sign.CROSS else self._invert_line(self._line)
+            tmp_line = self._line if sign == Sign.BLACK else self._invert_line(self._line)
             return any((pattern in tmp_line) for pattern in list_of_patterns)
         else:
             return False
@@ -148,15 +148,11 @@ def check_freestyle(board: np.ndarray, row: int, col: int) -> bool:
 def check_standard(board: np.ndarray, row: int, col: int) -> bool:
     assert 0 <= row < board.shape[0] and 0 <= col < board.shape[1]
     sign = Sign(board[row][col])
-    is_five = False
-    is_overline = False
     for direction in all_directions:
         line = Line(board, row, col, direction)
-        if line.is_five(sign):
-            is_five = True
-        if line.is_overline(sign):
-            is_overline = True
-    return is_five and not is_overline
+        if line.is_five(sign) and not line.is_overline(sign):
+            return True
+    return False
 
 
 def check_renju(board: np.ndarray, row: int, col: int) -> bool:

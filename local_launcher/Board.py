@@ -2,16 +2,15 @@ import numpy as np
 import copy
 from enum import Enum
 from typing import Optional
-from threading import Lock
-from local_launcher.utils import get_value
-from local_launcher.game_rules import Sign, GameRules, check_freestyle, check_standard, check_renju, check_caro, is_forbidden
+from utils import get_value
+from game_rules import Sign, GameRules, check_freestyle, check_standard, check_renju, check_caro, is_forbidden
 
 
 class GameOutcome(Enum):
     NO_OUTCOME = 0
     DRAW = 1
-    CROSS_WIN = 2
-    CIRCLE_WIN = 3
+    BLACK_WIN = 2
+    WHITE_WIN = 3
 
 
 class Move:
@@ -24,9 +23,8 @@ class Move:
         return str(self.col) + ' ' + str(self.row)
 
 
-class Game:
+class Board:
     def __init__(self, config: dict):
-        self._game_lock = Lock()
         self._rules = GameRules.from_string(get_value(config, 'rules'))
 
         self._board = np.zeros((get_value(config, 'rows'), get_value(config, 'cols')), dtype=np.int32)
@@ -46,20 +44,18 @@ class Game:
         :param list_of_moves:
         :return:
         """
-        with self._game_lock:
-            self._played_moves = []
-            for move in list_of_moves:
-                self.make_move(move)
+        self._played_moves = []
+        for move in list_of_moves:
+            self.make_move(move)
 
     def get_sign_to_move(self) -> Sign:
-        with self._game_lock:
-            if len(self._played_moves) == 0:
-                return Sign.CROSS
+        if len(self._played_moves) == 0:
+            return Sign.BLACK
+        else:
+            if self._played_moves[-1].sign == Sign.BLACK:
+                return Sign.WHITE
             else:
-                if self._played_moves[-1].sign == Sign.CROSS:
-                    return Sign.CIRCLE
-                else:
-                    return Sign.CROSS
+                return Sign.BLACK
 
     def is_square(self) -> bool:
         return self.rows() == self.cols()
@@ -75,46 +71,41 @@ class Game:
 
     def get_sign_at(self, row: int, col: int) -> Sign:
         assert 0 <= row < self.rows() and 0 <= col < self.cols()
-        with self._game_lock:
-            return Sign(self._board[row][col])
+        return Sign(self._board[row][col])
 
     def number_of_moves(self) -> int:
-        with self._game_lock:
-            return len(self._played_moves)
+        return len(self._played_moves)
 
     def get_played_moves(self) -> list:
-        with self._game_lock:
-            return copy.deepcopy(self._played_moves)
+        return copy.deepcopy(self._played_moves)
 
     def get_last_move(self) -> Optional[Move]:
-        with self._game_lock:
-            if len(self._played_moves) == 0:
-                return None
-            else:
-                return copy.deepcopy(self._played_moves[-1])
+        if len(self._played_moves) == 0:
+            return None
+        else:
+            return copy.deepcopy(self._played_moves[-1])
 
     def make_move(self, move: Move) -> None:
         assert 0 <= move.row < self.rows() and 0 <= move.col < self.cols() and \
-               (move.sign == Sign.CROSS or move.sign == Sign.CIRCLE) and \
+               (move.sign == Sign.BLACK or move.sign == Sign.WHITE) and \
                self.get_sign_at(move.row, move.col) == Sign.EMPTY
-        with self._game_lock:
-            self._board[move.row][move.col] = int(move.sign)
-            self._played_moves.append(copy.deepcopy(move))
+        self._board[move.row][move.col] = int(move.sign)
+        self._played_moves.append(copy.deepcopy(move))
 
     def get_outcome(self) -> GameOutcome:
         if self.number_of_moves() == 0:  # no outcome for empty board
             return GameOutcome.NO_OUTCOME
 
         if self._is_move_forbidden(self.get_last_move()):  # if last move was forbidden, the other player wins
-            if self.get_last_move().sign == Sign.CROSS:
-                return GameOutcome.CIRCLE_WIN
+            if self.get_last_move().sign == Sign.BLACK:
+                return GameOutcome.WHITE_WIN
             else:
-                return GameOutcome.CROSS_WIN
+                return GameOutcome.BLACK_WIN
         elif self._is_move_winning(self.get_last_move()):  # if last move was winning, this player wins
-            if self.get_last_move().sign == Sign.CROSS:
-                return GameOutcome.CROSS_WIN
+            if self.get_last_move().sign == Sign.BLACK:
+                return GameOutcome.BLACK_WIN
             else:
-                return GameOutcome.CIRCLE_WIN
+                return GameOutcome.WHITE_WIN
 
         empty_spots = 0
         for row in range(self.rows()):
