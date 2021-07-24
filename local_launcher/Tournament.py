@@ -31,6 +31,7 @@ class PlayingThread(Thread):
     def run(self) -> None:
         while self._is_running:
             self._play_game(self._config['player_1'], self._config['player_2'], 'swap2')
+            print(self._match.generate_pgn())
             time.sleep(5.0)
             self._play_game(self._config['player_2'], self._config['player_1'], 'swap2')
 
@@ -113,7 +114,7 @@ if __name__ == '__main__':
     import sys
     import logging
 
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
     tournament = Tournament('/home/maciek/Desktop/tournament/')
     while True:
         tournament.draw()
