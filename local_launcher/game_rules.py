@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 import copy
 from enum import IntEnum
@@ -33,12 +35,25 @@ class GameRules(IntEnum):
     def __str__(self) -> str:
         if self.value == GameRules.FREESTYLE:
             return 'FREESTYLE'
-        elif self.value == GameRules.FREESTYLE:
+        elif self.value == GameRules.STANDARD:
             return 'STANDARD'
-        elif self.value == GameRules.FREESTYLE:
+        elif self.value == GameRules.RENJU:
             return 'RENJU'
         else:
             return 'CARO'
+
+    @staticmethod
+    def from_string(s: str) -> GameRules:
+        if s.upper() == str(GameRules.FREESTYLE):
+            return GameRules.FREESTYLE
+        elif s.upper() == str(GameRules.STANDARD):
+            return GameRules.STANDARD
+        elif s.upper() == str(GameRules.RENJU):
+            return GameRules.RENJU
+        elif s.upper() == str(GameRules.CARO):
+            return GameRules.CARO
+        else:
+            raise Exception('unknown rules \'' + s + '\'')
 
 
 class Direction(IntEnum):
@@ -75,8 +90,8 @@ class Line:
         self._fives = ['XXXXX']
         self._fours = ['XXXX_', 'XXX_X', 'XX_XX', 'X_XXX', '_XXXX']
         self._inline_double_fours = ['XXX_X_XXX', 'XX_XX_XX', 'X_XXX_X']
-        self._threes = []  # TODO for renju rule
-        self._inline_double_threes = []  # TODO for renju rule
+        self._threes = ['__XXX_', '_XXX__', '_XX_X_', '_X_XX_']
+        self._inline_double_threes = []
         self._blocked_fives = ['OXXXXXO']
 
     @staticmethod

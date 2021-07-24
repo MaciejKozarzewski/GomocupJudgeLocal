@@ -1,54 +1,39 @@
 import subprocess, shlex
 import psutil
 import copy
-import time
 import sys
 from typing import Union, Optional
 from utility import *
 from queue import Queue, Empty
 from threading import Thread
 import logging
+import time
 
 from local_launcher.Game import Move, Sign, GameRules
-
-
-def get_time() -> float:
-    return time.time()
+from local_launcher.utils import get_time, get_value
 
 
 class Player:
-    def __init__(self,
-                 sign: Sign,
-                 command: str,
-                 name: str = None,
-                 timeout_turn: float = 5.0,  # in seconds
-                 timeout_match: float = 120.0,  # in seconds
-                 max_memory: int = 350 * 1024 * 1024,  # in bytes
-                 folder: str = './',
-                 working_dir: str = './',
-                 allow_pondering: bool = False,
-                 tolerance: float = 1.0):
+    def __init__(self, config: dict):
+        self._sign = Sign.EMPTY
+        self._command = get_value(config, 'command')
+        self._name = get_value(config, 'name', self._command)
+        self._timeout_turn = get_value(config, 'timeout_turn', 5.0)
+        self._timeout_match = get_value(config, 'timeout_match', 12.0)
+        self._time_left = self._timeout_match
+        self._max_memory = get_value(config, 'max_memory', 350)
+        self._folder = get_value(config, 'folder', '/.')
+        self._allow_pondering = get_value(config, 'allow_pondering', False)
+        self._tolerance = get_value(config, 'tolerance', 1.0)
+        self._working_dir = get_value(config, 'working_dir', '/.')
 
-        self._sign = sign
-        if name is None:
-            self._name = command
-        else:
-            self._name = name
-        self._timeout_turn = timeout_turn
-        self._timeout_match = timeout_match
-        self._time_left = timeout_match
-        self._max_memory = max_memory
-        self._folder = folder
-        self._allow_pondering = allow_pondering
-        self._tolerance = tolerance
-
-        self._process = subprocess.Popen(shlex.split(command),
+        self._process = subprocess.Popen(shlex.split(self._command),
                                          shell=False,
                                          stdin=subprocess.PIPE,
                                          stdout=subprocess.PIPE,
                                          # bufsize=1,
                                          close_fds='posix' in sys.builtin_module_names,
-                                         cwd=working_dir)
+                                         cwd=self._working_dir)
 
         def enqueue_output(out, queue):
             for line in iter(out.readline, b''):
@@ -61,10 +46,13 @@ class Player:
         queue_thread.start()
 
         self._pp = psutil.Process(self._process.pid)
-        logging.info('successfully created process ' + command)
+        logging.info('successfully created process ' + self._command)
         self._suspend()
 
         self._message_log = []
+        self._evaluation = ''
+        self._is_now_on_move = False
+        self._start_time = time.time()
 
     @staticmethod
     def _parse_move_from_string(msg: str, sign: Sign) -> Move:
@@ -91,12 +79,12 @@ class Player:
     def _receive(self) -> Optional[str]:
         result = ''
         timeout_sec = self._tolerance + min(self._time_left, self._timeout_turn)
-        start = time.time()
+        start = get_time()
         while True:
             try:
                 buf = self._queue.get_nowait()
             except Empty:
-                if time.time() - start > timeout_sec:
+                if get_time() - start > timeout_sec:
                     break
                 time.sleep(0.01)
             else:
@@ -128,8 +116,19 @@ class Player:
             answer = self._receive()
             if answer is None:
                 raise Exception('player has not responded correctly')
-            elif not self._is_message(answer):
+            elif self._is_message(answer):
+                if answer.startswith('MESSAGE'):
+                    self._evaluation = answer[8:]
+            else:
                 return answer
+
+    def _timer_start(self) -> None:
+        self._is_now_on_move = True
+        self._start_time = time.time()
+
+    def _timer_stop(self) -> None:
+        self._is_now_on_move = False
+        self._time_left -= (get_time() - self._start_time)
 
     def get_name(self) -> str:
         return self._name
@@ -151,8 +150,23 @@ class Player:
                 except Exception as e:
                     logging.error(str(e))
         except Exception as e:
-            logging.error(str(e))
+            pass
         return result
+
+    def get_message_log(self) -> list:
+        return copy.deepcopy(self._message_log)
+
+    def get_time_left(self) -> float:
+        if self._is_now_on_move:
+            return self._time_left - (get_time() - self._start_time)
+        else:
+            return self._time_left
+
+    def get_evaluation(self) -> str:
+        return self._evaluation
+
+    def is_on_move(self) -> bool:
+        return self._is_now_on_move
 
     def start(self, rows: int, columns: int, rules: GameRules) -> None:
         """
@@ -162,7 +176,7 @@ class Player:
         :param rules:
         :return:
         """
-        start_time = get_time()
+        self._timer_start()
         self._resume()
         if rows == columns:
             self._send('START ' + str(rows))
@@ -176,11 +190,11 @@ class Player:
         self.info('rule ' + str(int(rules)))
         self.info("timeout_turn " + str(int(1000 * self._timeout_turn)))
         self.info("timeout_match " + str(int(1000 * self._timeout_match)))
-        self.info("max_memory " + str(self._max_memory))
+        self.info("max_memory " + str(int(self._max_memory * 1024 * 1024)))
         self.info("game_type " + str(1))
         self.info("folder " + str(self._folder))
         self._suspend()
-        self._time_left -= (get_time() - start_time)
+        self._timer_stop()
 
     def info(self, msg: str) -> None:
         """
@@ -197,7 +211,7 @@ class Player:
         :param list_of_moves: opening used for the game
         :return: first move made by the engine
         """
-        start_time = get_time()
+        self._timer_start()
         self._resume()
 
         self.info('time_left ' + str(int(1000 * self._time_left)))
@@ -212,10 +226,12 @@ class Player:
                 else:
                     self._send(str(move.col) + ',' + str(move.row) + ',2')
             self._send('DONE')
+        self._is_now_on_move = True
         answer = self._get_response()
+        self._is_now_on_move = False
 
         self._suspend()
-        self._time_left -= (get_time() - start_time)
+        self._timer_stop()
         return self._parse_move_from_string(answer, self._sign)
 
     def swap2board(self, list_of_moves) -> Union[str, list]:
@@ -228,7 +244,7 @@ class Player:
         :param list_of_moves: list of moves that were already played
         :return: either string 'SWAP' or list of moves proposed by the engine
         """
-        start_time = get_time()
+        self._timer_start()
         self._resume()
         self.info('time_left ' + str(int(1000 * self._time_left)))
         if len(list_of_moves) == 0:
@@ -237,7 +253,7 @@ class Player:
             self._send('DONE')
             answer = self._get_response()
             self._suspend()
-            self._time_left -= (get_time() - start_time)
+            self._timer_stop()
 
             tmp = answer.split(' ')
             assert len(tmp) == 3
@@ -253,18 +269,18 @@ class Player:
             self._send('DONE')
             answer = self._get_response()
             self._suspend()
-            self._time_left -= (get_time() - start_time)
+            self._timer_stop()
 
             if answer == 'SWAP':
                 return 'SWAP'
             else:
                 tmp = answer.split(' ')
                 if len(tmp) == 1:
-                    result = [self._parse_move_from_string(tmp[0], Sign.CROSS)]
+                    result = [self._parse_move_from_string(tmp[0], Sign.CIRCLE)]
                     return result
                 elif len(tmp) == 2:
-                    result = [self._parse_move_from_string(tmp[0], Sign.CROSS),
-                              self._parse_move_from_string(tmp[1], Sign.CIRCLE)]
+                    result = [self._parse_move_from_string(tmp[0], Sign.CIRCLE),
+                              self._parse_move_from_string(tmp[1], Sign.CROSS)]
                     return result
                 else:
                     raise Exception('incorrect answer for 3-stone opening')
@@ -276,14 +292,14 @@ class Player:
             self._send('DONE')
             answer = self._get_response()
             self._suspend()
-            self._time_left -= (get_time() - start_time)
+            self._timer_stop()
 
             if answer == 'SWAP':
                 return 'SWAP'
             else:
                 tmp = answer.split(' ')
                 assert len(tmp) == 1
-                return [self._parse_move_from_string(tmp[0], Sign.CROSS)]
+                return [self._parse_move_from_string(tmp[0], Sign.CIRCLE)]
         else:
             raise Exception('too many stones placed in swap2')
 
@@ -292,14 +308,14 @@ class Player:
         :param last_move:
         :return:
         """
-        start_time = get_time()
+        self._timer_start()
         self._resume()
         self.info('time_left ' + str(int(1000 * self._time_left)))
         self._send('TURN ' + str(last_move.col) + ',' + str(last_move.row))
         answer = self._get_response()
         self._suspend()
-        self._time_left -= (get_time() - start_time)
 
+        self._timer_stop()
         return self._parse_move_from_string(answer, self._sign)
 
     def end(self) -> None:

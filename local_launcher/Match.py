@@ -1,10 +1,8 @@
-from local_launcher.Game import Game, Move, Sign, GameRules, GameOutcome
+from local_launcher.Game import Game, Move, Sign, GameOutcome
 from local_launcher.Player import Player
 import copy
-import time
-import sys
-import logging
-import signal
+import numpy as np
+import cv2
 
 
 class Match:
@@ -92,7 +90,13 @@ class Match:
             print('move', self._game.number_of_moves())
             print(self._game.to_string())
 
+        print(self._game.get_outcome())
+        self.cleanup()
         return self._game.get_outcome()
+
+    def cleanup(self) -> None:
+        self._cross_player.end()
+        self._circle_player.end()
 
     def generate_pgn(self) -> str:
         result = '[White \'' + self._cross_player.get_name() + '\']\n'
@@ -111,42 +115,56 @@ class Match:
         result += '1. d4 d5 ' + tmp + '\n'
         return result
 
+    def draw(self, size: int = 15) -> np.ndarray:
+        height = (1 + 6 + self._game.rows() + 1) * size
+        width = (1 + self._game.cols() + 1) * size
+        result = np.zeros((height, width, 3), dtype=np.uint8)
+        line_thickness = max(1, size // 10)
 
-if __name__ == '__main__':
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+        '''fill background'''
+        cv2.rectangle(result, (0, 0), (width, height), color=(192, 192, 192), thickness=-1)
 
-    cross_player = Player(sign=Sign.CROSS,
-                          command='/home/maciek/Desktop/AlphaGomoku5/pbrain-AlphaGomoku_cpu.out',
-                          name='AlphaGomoku_5_0_1',
-                          timeout_turn=5.0,
-                          timeout_match=120.0,
-                          max_memory=1024 * 1024 * 1024,
-                          folder='./',
-                          allow_pondering=False)
+        '''highlight side to move'''
+        if self._cross_player.is_on_move():
+            cv2.rectangle(result, (0, int(0.5 * size)), (width, int((0.5 + 3) * size)), color=(224, 224, 224), thickness=-1)
+        if self._circle_player.is_on_move():
+            cv2.rectangle(result, (0, int((0.5 + 3) * size)), (width, int((0.5 + 3 + 3) * size)), color=(224, 224, 224), thickness=-1)
 
-    circle_player = Player(sign=Sign.CIRCLE,
-                           command='/home/maciek/Desktop/AlphaGomoku4/pbrain-AlphaGomoku64_cpu',
-                           name='AlphaGomoku_4_0_0',
-                           timeout_turn=5.0,
-                           timeout_match=120.0,
-                           max_memory=1024 * 1024 * 1024,
-                           folder='./',
-                           allow_pondering=False)
+        def summarize_player(player: Player, x: int, y: int, color: tuple) -> None:
+            text1 = player.get_name() + ' : ' + str(round(player.get_time_left(), 1)) + 's'
+            text2 = str(player.get_memory() // (1024 * 1024)) + 'MB, ' + player.get_evaluation()
+            cv2.putText(result, text1, (y, x - int(1.5 * size)), cv2.QT_FONT_NORMAL, 0.8, color=color, thickness=1)
+            cv2.putText(result, text2, (y, x), cv2.QT_FONT_NORMAL, 0.6, color=color, thickness=1)
 
+        '''print info about players'''
+        summarize_player(self._cross_player, 3 * size, int(0.5 * size), (255, 0, 0))
+        summarize_player(self._circle_player, 6 * size, int(0.5 * size), (0, 0, 255))
 
-    def signal_handling(signum, frame):
-        print('stopping all players...')
-        cross_player.end()
-        circle_player.end()
-        time.sleep(5.0)
-        print('exiting...')
-        sys.exit()
+        '''draw board lines'''
+        for i in range(self._game.rows()):
+            for j in range(self._game.cols()):
+                x0 = (1 + 6 + i) * size
+                y0 = (1 + j) * size
+                cv2.rectangle(result, (y0, x0), (y0 + size, x0 + size), color=(0, 0, 0), thickness=1)
 
+        '''highlight last move'''
+        last_move = self._game.get_last_move()
+        if last_move is not None:
+            x0 = (1 + 6 + last_move.row) * size
+            y0 = (1 + last_move.col) * size
+            cv2.rectangle(result, (y0, x0), (y0 + size, x0 + size), color=(0, 255, 255), thickness=1)
 
-    signal.signal(signal.SIGINT, signal_handling)
+        '''draw all moves'''
+        moves = self._game.get_played_moves()
+        for move in moves:
+            x0 = (1 + 6 + move.row) * size
+            y0 = (1 + move.col) * size
+            if move.sign == Sign.CROSS:
+                cv2.line(result, (y0 + size // 10, x0 + size // 10), (y0 + size - size // 10, x0 + size - size // 10), color=(255, 0, 0), thickness=line_thickness)
+                cv2.line(result, (y0 + size - size // 10, x0 + size // 10), (y0 + size // 10, x0 + size - size // 10), color=(255, 0, 0), thickness=line_thickness)
+            else:
+                cv2.circle(result, (y0 + size // 2, x0 + size // 2), (size * 4 // 10), color=(0, 0, 255), thickness=line_thickness)
+        return result
 
-    game = Game(15, 15, GameRules.STANDARD)
-
-    match = Match(game, cross_player, circle_player)
-    outcome = match.play_game()
-    print(outcome)
+    def text_summary(self) -> str:
+        pass
