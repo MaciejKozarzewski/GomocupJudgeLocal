@@ -1,16 +1,40 @@
+from __future__ import annotations
 import numpy as np
 import copy
-from enum import Enum
+from enum import IntEnum
 from typing import Optional
 from utils import get_value
 from game_rules import Sign, GameRules, check_freestyle, check_standard, check_renju, check_caro, is_forbidden
 
 
-class GameOutcome(Enum):
+class GameOutcome(IntEnum):
     NO_OUTCOME = 0
     DRAW = 1
     BLACK_WIN = 2
     WHITE_WIN = 3
+
+    def __str__(self) -> str:
+        if self.value == GameOutcome.NO_OUTCOME:
+            return 'NO_OUTCOME'
+        elif self.value == GameOutcome.DRAW:
+            return 'DRAW'
+        elif self.value == GameOutcome.BLACK_WIN:
+            return 'BLACK_WIN'
+        else:
+            return 'WHITE_WIN'
+
+    @staticmethod
+    def from_string(s: str) -> GameOutcome:
+        if s.lower() == 'no_outcome':
+            return GameOutcome.NO_OUTCOME
+        elif s.lower() == 'draw':
+            return GameOutcome.DRAW
+        elif s.lower() == 'black_win':
+            return GameOutcome.BLACK_WIN
+        elif s.lower() == 'white_win':
+            return GameOutcome.WHITE_WIN
+        else:
+            raise Exception('unknown game outcome \'' + s + '\'')
 
 
 class Move:

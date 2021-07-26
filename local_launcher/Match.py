@@ -131,8 +131,8 @@ class Match:
         self._player2.end()
 
     def generate_pgn(self) -> str:
-        result = '[White \'' + self._get_white_player().get_name() + '\']\n'
-        result += '[Black \'' + self._get_black_player().get_name() + '\']\n'
+        result = '[White \"' + self._get_white_player().get_name() + '\"]\n'
+        result += '[Black \"' + self._get_black_player().get_name() + '\"]\n'
         outcome = self._board.get_outcome()
         if outcome == GameOutcome.WHITE_WIN:
             tmp = '1-0'
@@ -142,21 +142,22 @@ class Match:
             tmp = '1/2-1/2'
         else:
             return ''  # TODO maybe it's better to throw an exception instead of returning empty PGN?
-        result += '[Result ' + tmp + ']\n'
-        result += '\n'
-        for i in range(0, len(self._move_log), 2):
-            result += str(1 + i // 2) + '. '
-            if i < len(self._move_log):
-                result += self._move_log[i]
-            if i + 1 < len(self._move_log):
-                result += ' ' + self._move_log[i + 1] + ' '
-            else:
-                result += ' ' + tmp + '\n'
+        result += '[Result \"' + tmp + '\"]\n'
+        result += '1. N/A \n'
+        # FIXME saving game history below
+        # for i in range(0, len(self._move_log), 2):
+        #     result += str(1 + i // 2) + '. '
+        #     if i < len(self._move_log):
+        #         result += self._move_log[i]
+        #     if i + 1 < len(self._move_log):
+        #         result += ' ' + self._move_log[i + 1] + ' '
+        #     else:
+        #         result += ' ' + tmp + '\n'
         return result
 
     def draw(self, size: int = 15) -> None:
         if self._board.number_of_moves() == self._prev_number_of_moves:
-            return  # do not redraw if no new moves werre played
+            return  # do not redraw if no new moves were played
         else:
             self._prev_number_of_moves = self._board.number_of_moves()
 

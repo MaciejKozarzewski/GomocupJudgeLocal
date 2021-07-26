@@ -49,10 +49,11 @@ class Player:
         self._suspend()
 
         self._message_log = []
-        self._evaluation = {}
+        self._evaluation = {'memory': '?', 'depth': '?', 'score': '?', 'nodes': '?', 'speed': '?', 'time': '?', 'pv': '?'}
         self._is_now_on_move = False
         self._start_time = time.time()
         self._name = get_value(config, 'name', self._parse_name())  # engine name can be obtained only after the process has started, obviously...
+        time.sleep(1.0)  # sleep so that all processes are not launched at the same time (might mess up with logfiles, etc.)
 
     def _parse_name(self) -> str:
         self._resume()
@@ -204,7 +205,7 @@ class Player:
             ds = ds + [self._pp]
             for d in ds:
                 try:
-                    result += d.memory_info()[1]
+                    result += d.memory_full_info()[7]
                 except Exception as e:
                     logging.error(str(e))
         except Exception as e:
@@ -390,5 +391,5 @@ class Player:
     def is_alive(self) -> bool:
         try:
             return self._process.poll() is None
-        except:
+        except Exception as e:
             return False
