@@ -10,6 +10,7 @@ import time
 
 from Board import Move, Sign, GameRules
 from utils import get_time, get_value
+from exceptions import Timeouted, Crashed, TooMuchMemory, MadeIllegalMove, Interrupted
 
 
 class Player:
@@ -38,6 +39,7 @@ class Player:
             for line in iter(out.readline, b''):
                 queue.put(line)
             out.close()
+            logging.info('closing queue')
 
         self._queue = Queue()
         queue_thread = Thread(target=enqueue_output, args=(self._process.stdout, self._queue))
@@ -48,12 +50,14 @@ class Player:
         logging.info('successfully created process ' + self._command)
         self._suspend()
 
-        self._message_log = []
+        self._is_engine_running = True
+        self._received_messages = []
+        self._sent_messages = []
         self._evaluation = {'memory': '?', 'depth': '?', 'score': '?', 'nodes': '?', 'speed': '?', 'time': '?', 'pv': '?'}
         self._is_now_on_move = False
         self._start_time = time.time()
         self._name = get_value(config, 'name', self._parse_name())  # engine name can be obtained only after the process has started, obviously...
-        time.sleep(1.0)  # sleep so that all processes are not launched at the same time (might mess up with logfiles, etc.)
+        time.sleep(1.0)  # sleep so that all processes are not launched exactly at the same time (might mess up with logfiles, etc.)
 
     def _parse_name(self) -> str:
         self._resume()
@@ -112,6 +116,12 @@ class Player:
 
         return result
 
+    def _get_last_sent_command(self) -> str:
+        if len(self._sent_messages) == 0:
+            return ''
+        else:
+            return self._sent_messages[-1]
+
     @staticmethod
     def _parse_move_from_string(msg: str, sign: Sign) -> Move:
         assert sign == Sign.BLACK or sign == Sign.WHITE
@@ -124,7 +134,7 @@ class Player:
         return msg.startswith('MESSAGE') or msg.startswith('ERROR') or msg.startswith('UNKNOWN')
 
     def _send(self, msg: str) -> None:
-        self._message_log.append('received : ' + msg)
+        self._sent_messages.append(msg)
         logging.info('writing \'' + msg + '\' to engine \'' + self.get_name() + '\'')
 
         if msg[-1] != '\n':
@@ -138,20 +148,34 @@ class Player:
     def _receive(self, timeout: float) -> Optional[str]:
         result = ''
         start = get_time()
-        while True:
+
+        def time_used() -> float:
+            return get_time() - start
+
+        while self._is_engine_running and time_used() < timeout:
             try:
                 buf = self._queue.get_nowait()
             except Empty:
-                if get_time() - start > timeout:
-                    break
                 time.sleep(0.1)
             else:
                 result += buf.decode('utf-8')
+
+            if self.get_memory() > self._max_memory:
+                raise TooMuchMemory(self.get_name(), self.get_sign(), self.get_memory(), self._max_memory)
+
             if result.endswith('\n'):
-                self._message_log.append('answered : ' + result[:-1])
-                logging.info('received \'' + result[:-1] + '\' from engine \'' + self.get_name() + '\'')
-                return result[:-1]  # remove new line character at the end
-        return None
+                result = result.strip('\n')  # remove new line character at the end
+                self._received_messages.append(result)
+                logging.info('received \'' + result + '\' from engine \'' + self.get_name() + '\'')
+                return result
+
+        logging.info(str(self.is_alive()) + ' ' + str(self.is_on_move()))
+        if self.is_alive():  # if process is alive and we got here it means timeout
+            raise Timeouted(self.get_name(), self.get_sign(), time_used(), timeout)
+        elif self.is_on_move():  # if the process is dead but 'on move' it means crash
+            raise Crashed(self.get_name(), self.get_sign(), result, self._get_last_sent_command())
+        else:  # if the process is neither alive nor 'on move' it means interruption
+            raise Interrupted(self.get_name(), self.get_sign())
 
     def _suspend(self) -> None:
         if not self._allow_pondering:
@@ -170,9 +194,7 @@ class Player:
     def _get_response(self, timeout: float) -> str:
         while True:
             answer = self._receive(timeout)
-            if answer is None:
-                raise Exception('player has not responded correctly')
-            elif self._is_message(answer):
+            if self._is_message(answer):
                 if answer.startswith('MESSAGE'):
                     self._evaluation = self._parse_evaluation(answer)
             else:
@@ -198,7 +220,11 @@ class Player:
     def set_sign(self, sign: Sign) -> None:
         self._sign = sign
 
-    def get_memory(self) -> int:
+    def get_memory(self) -> float:
+        """
+
+        :return: memory used by the process in MB
+        """
         result = 0
         try:
             ds = list(self._pp.children(recursive=True))
@@ -210,10 +236,7 @@ class Player:
                     logging.error(str(e))
         except Exception as e:
             pass
-        return result
-
-    def get_message_log(self) -> list:
-        return copy.deepcopy(self._message_log)
+        return result / 1048576.0
 
     def get_time_left(self) -> float:
         if self._is_now_on_move:
@@ -342,7 +365,7 @@ class Player:
                               self._parse_move_from_string(tmp[1], Sign.BLACK)]
                     return result
                 else:
-                    raise Exception('incorrect answer for 3-stone opening')
+                    raise MadeIllegalMove(self.get_name(), self.get_sign())
         elif len(list_of_moves) == 5:
             self._send('SWAP2BOARD')
             for m in list_of_moves:
@@ -359,7 +382,7 @@ class Player:
                 assert len(tmp) == 1
                 return [self._parse_move_from_string(tmp[0], Sign.WHITE)]
         else:
-            raise Exception('too many stones placed in swap2')
+            raise MadeIllegalMove(self.get_name(), self.get_sign())
 
     def turn(self, last_move: Move) -> Move:
         """
@@ -378,15 +401,18 @@ class Player:
 
     def end(self) -> None:
         self._resume()
+        self._timer_stop()
         self._send('END')
         time.sleep(self._tolerance)
         try:
+            logging.info('player \'' + self.get_name() + '\' did not stop on time, killing process')
             if self.is_alive():
                 for pp in self._pp.children(recursive=True):
                     pp.kill()
                 self._pp.kill()
         except Exception as e:
             pass
+        self._is_engine_running = False
 
     def is_alive(self) -> bool:
         try:

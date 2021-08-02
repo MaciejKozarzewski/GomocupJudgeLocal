@@ -1,6 +1,6 @@
 from __future__ import annotations
 from threading import Thread, Lock
-import subprocess, shlex
+import signal
 import os
 import json
 import copy
@@ -11,8 +11,9 @@ import cv2
 import sys
 import logging
 from Match import Match
-from Board import Board, Move, Sign, GameOutcome, GameRules
+from Board import Board, Sign, GameOutcome
 from Player import Player
+from exceptions import Timeouted, Crashed, MadeFoulMove, MadeIllegalMove, TooMuchMemory, Interrupted
 
 
 class PlayingThread(Thread):
@@ -30,9 +31,18 @@ class PlayingThread(Thread):
         else:
             return None
 
-    def _play_game(self, cfg_cross: dict, cfg_circle: dict, opening: str) -> GameOutcome:
+    def _play_game(self, cfg_cross: dict, cfg_circle: dict, opening: str) -> tuple:
         self._match = Match(Board(self._config['game_config']), Player(cfg_cross), Player(cfg_circle), opening)
-        return self._match.play_game()
+        try:
+            return self._match.play_game(), ''
+        except (Timeouted, Crashed, MadeFoulMove, MadeIllegalMove, TooMuchMemory) as e:
+            print('\n', e, '\n')
+            if e.sign == Sign.BLACK:
+                return GameOutcome.WHITE_WIN, str(e)
+            else:
+                return GameOutcome.BLACK_WIN, str(e)
+        except Interrupted as e:
+            return GameOutcome.NO_OUTCOME, 'in progress'
 
     def run(self) -> None:
         while self._is_running:
@@ -40,8 +50,8 @@ class PlayingThread(Thread):
             if cfg is None:
                 self._is_running = False
                 break
-            outcome = self._play_game(self._config[cfg[0]], self._config[cfg[1]], cfg[2])
-            self._manager.finish_gamed(idx, outcome, self._match.generate_pgn())
+            outcome, comment = self._play_game(self._config[cfg[0]], self._config[cfg[1]], cfg[2])
+            self._manager.finish_gamed(idx, outcome, self._match.generate_pgn(), comment)
 
             time.sleep(5.0)
 
@@ -66,6 +76,7 @@ class Tournament:
         with open(working_dir + 'config.json', 'r') as file:
             self._config = json.loads(file.read())
         self._config['working_dir'] = working_dir
+        self._is_running = False
         self._started_games = 0
         self._finished_games = 0
         self._tournament_lock = Lock()
@@ -99,23 +110,23 @@ class Tournament:
                 lines = file.readlines()
                 for line in lines:
                     tmp = line[:-1].split(':')
-                    result.append([tmp[0], tmp[1], tmp[2], GameOutcome.from_string(tmp[3])])
+                    result.append([tmp[0], tmp[1], tmp[2], GameOutcome.from_string(tmp[3]), tmp[4]])
         else:
             print('creating new tournament state')
             openings = self._load_openings(self._config['openings'])
             for i in range(0, self._config['games_to_play'], 2):
                 op = openings[(i // 2) % len(openings)]
                 '''schedule two games with the same opening, but with players having different colors'''
-                result.append(['player_1', 'player_2', op, GameOutcome.NO_OUTCOME])
+                result.append(['player_1', 'player_2', op, GameOutcome.NO_OUTCOME, ''])
                 if i + 1 < self._config['games_to_play']:  # for odd number of games to play
-                    result.append(['player_2', 'player_1', op, GameOutcome.NO_OUTCOME])
+                    result.append(['player_2', 'player_1', op, GameOutcome.NO_OUTCOME, ''])
         return result
 
     def _save_games(self) -> None:
         with open(self._config['working_dir'] + '/games.txt', 'w') as file:
             for line in self._games:
                 ''' black player, white player, opening, outcome'''
-                file.write(line[0] + ':' + line[1] + ':' + line[2] + ':' + str(line[3]) + '\n')
+                file.write(line[0] + ':' + line[1] + ':' + line[2] + ':' + str(line[3]) + ':' + line[4] + '\n')
 
     def _save_pgn(self) -> None:
         with open(self._config['working_dir'] + '/result.pgn', 'w') as file:
@@ -148,6 +159,7 @@ class Tournament:
         return result
 
     def start(self) -> None:
+        self._is_running = True
         for t in self._threads:
             t.start()
 
@@ -161,9 +173,10 @@ class Tournament:
             else:
                 return -1, None
 
-    def finish_gamed(self, idx: int, outcome: GameOutcome, pgn: str) -> None:
+    def finish_gamed(self, idx: int, outcome: GameOutcome, pgn: str, comment: str) -> None:
         with self._tournament_lock:
             self._games[idx][3] = outcome
+            self._games[idx][4] = comment
             self._pgn += pgn + '\n'
             self._finished_games += 1
             self._save_games()
@@ -227,15 +240,31 @@ class Tournament:
 
         return result
 
+    def is_running(self) -> bool:
+        return self._is_running
+
+    def stop(self) -> None:
+        self._is_running = False
+
 
 if __name__ == '__main__':
-    # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
     tournament = Tournament('/home/maciek/Desktop/tournament/')
 
+
+    def signal_handler(sig, frame):
+        logging.info('Requesting interruption, this may take a while...')
+        tournament.stop()
+
+
+    signal.signal(signal.SIGINT, signal_handler)
+
     tournament.start()
-    while True:
+    while tournament.is_running():
         tournament.draw(24)
         cv2.imshow('preview', tournament.get_frame())
         cv2.waitKey(1000)
+
     tournament.cleanup()
     cv2.destroyWindow('preview')
+    exit(0)
