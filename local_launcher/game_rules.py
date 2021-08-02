@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import copy
-from enum import IntEnum
+from enum import IntEnum, Enum
 
 '''
 All methods here returns true if stone at board[row][col] is a part of a winning line, false otherwise.
@@ -54,6 +54,20 @@ class GameRules(IntEnum):
             return GameRules.CARO
         else:
             raise Exception('unknown rules \'' + s + '\'')
+
+
+class FoulType(Enum):
+    FOUL_6 = 0
+    FOUL4x4 = 1
+    FOUL_3x3 = 2
+
+    def __str__(self) -> str:
+        if self.value == GameRules.FOUL_6:
+            return 'OVERLINE'
+        elif self.value == GameRules.FOUL4x4:
+            return 'DOUBLE FOUR'
+        else:
+            return 'DOUBLE THREE'
 
 
 class Direction(IntEnum):
