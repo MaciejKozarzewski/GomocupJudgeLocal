@@ -105,8 +105,9 @@ class Match:
             moves = self._opening.split(' ')
             for move in moves:
                 tmp = move.split(',')
-                self._save_action(move)
-                self._board.make_move(Move(int(tmp[0]), int(tmp[1]), self._board.get_sign_to_move()))
+                m = Move(int(tmp[0]), int(tmp[1]), self._board.get_sign_to_move())
+                self._save_action(m)
+                self._board.make_move(m)
         '''now the opening is prepared'''
 
         first_move = self._get_player_to_move().board(self._board.get_played_moves())
@@ -143,17 +144,12 @@ class Match:
         else:
             return ''  # TODO maybe it's better to throw an exception instead of returning empty PGN?
         result += '[Result \"' + tmp + '\"]\n'
-        result += '1. N/A \n'
-        # FIXME saving game history below
-        # for i in range(0, len(self._move_log), 2):
-        #     result += str(1 + i // 2) + '. '
-        #     if i < len(self._move_log):
-        #         result += self._move_log[i]
-        #     if i + 1 < len(self._move_log):
-        #         result += ' ' + self._move_log[i + 1] + ' '
-        #     else:
-        #         result += ' ' + tmp + '\n'
-        return result
+        for i in range(0, len(self._move_log), 2):
+            result += str(1 + i // 2) + '. ' + self._move_log[i]
+            if i + 1 < len(self._move_log):
+                result += ' ' + self._move_log[i + 1]
+            result += ' '
+        return result + '\n'
 
     def draw(self, size: int = 15) -> None:
         if self._board.number_of_moves() == self._prev_number_of_moves:
@@ -178,7 +174,7 @@ class Match:
         def summarize_player(player: Player, x: int, y: int) -> None:
             text1 = player.get_name() + ' : ' + str(round(player.get_time_left(), 1)) + 's'
             eval = player.get_evaluation()
-            text2 = str(eval['memory'] // (1024 * 1024)) + 'MB'
+            text2 = str(int(eval['memory'])) + 'MB'
             text_depth = 'depth = ' + eval['depth']
             text_score = 'score = ' + eval['score']
             text_nodes = 'nodes = ' + eval['nodes']
@@ -196,10 +192,12 @@ class Match:
             cv2.putText(self._frame, text1, (y + size, x - int(1.5 * size)), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
             cv2.putText(self._frame, text2, (y, x), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
 
-            cv2.putText(self._frame, text_depth, (y + 4 * size, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
-            cv2.putText(self._frame, text_score, (y + 10 * size, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
-            cv2.putText(self._frame, text_nodes, (y + 4 * size, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
-            cv2.putText(self._frame, text_speed, (y + 10 * size, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            split_1 = int(0.3 * self._board.cols() * size)
+            split_2 = int(0.65 * self._board.cols() * size)
+            cv2.putText(self._frame, text_depth, (y + split_1, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text_score, (y + split_2, x - size // 2), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text_nodes, (y + split_1, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text_speed, (y + split_2, x + size // 4), cv2.QT_FONT_NORMAL, 0.6, color=(0, 0, 0), thickness=1)
 
         '''print info about players'''
         summarize_player(self._player1, 3 * size, int(0.5 * size))
