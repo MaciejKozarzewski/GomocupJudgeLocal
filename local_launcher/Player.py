@@ -18,8 +18,8 @@ class Player:
         self._sign = Sign.EMPTY
         self._command = get_value(config, 'command')
         self._name = None
-        self._timeout_turn = get_value(config, 'timeout_turn', 5.0)
-        self._timeout_match = get_value(config, 'timeout_match', 12.0)
+        self._timeout_turn = get_value(config, 'timeout_turn', 30.0)
+        self._timeout_match = get_value(config, 'timeout_match', 180.0)
         self._time_left = self._timeout_match
         self._max_memory = get_value(config, 'max_memory', 350)
         self._folder = get_value(config, 'folder', '/.')
@@ -143,7 +143,7 @@ class Player:
             self._process.stdin.write(msg.encode())
             self._process.stdin.flush()
         except Exception as e:
-            pass
+            logging.error(str(e))
 
     def _receive(self, timeout: float) -> Optional[str]:
         result = ''
@@ -161,7 +161,7 @@ class Player:
                 result += buf.decode('utf-8')
 
             if self.get_memory() > self._max_memory:
-                raise TooMuchMemory(self.get_name(), self.get_sign(), self.get_memory(), self._max_memory)
+                raise TooMuchMemory(self.get_sign(), self.get_memory(), self._max_memory)
 
             if result.endswith('\n'):
                 result = result.strip('\n')  # remove new line character at the end
@@ -171,11 +171,11 @@ class Player:
 
         logging.info(str(self.is_alive()) + ' ' + str(self.is_on_move()))
         if self.is_alive():  # if process is alive and we got here it means timeout
-            raise Timeouted(self.get_name(), self.get_sign(), time_used(), timeout)
+            raise Timeouted(self.get_sign(), time_used(), timeout)
         elif self.is_on_move():  # if the process is dead but 'on move' it means crash
-            raise Crashed(self.get_name(), self.get_sign(), result, self._get_last_sent_command())
+            raise Crashed(self.get_sign(), result, self._get_last_sent_command())
         else:  # if the process is neither alive nor 'on move' it means interruption
-            raise Interrupted(self.get_name(), self.get_sign())
+            raise Interrupted(self.get_sign())
 
     def _suspend(self) -> None:
         if not self._allow_pondering:
@@ -365,7 +365,7 @@ class Player:
                               self._parse_move_from_string(tmp[1], Sign.BLACK)]
                     return result
                 else:
-                    raise MadeIllegalMove(self.get_name(), self.get_sign())
+                    raise MadeIllegalMove(self.get_sign(), answer)
         elif len(list_of_moves) == 5:
             self._send('SWAP2BOARD')
             for m in list_of_moves:
@@ -382,7 +382,7 @@ class Player:
                 assert len(tmp) == 1
                 return [self._parse_move_from_string(tmp[0], Sign.WHITE)]
         else:
-            raise MadeIllegalMove(self.get_name(), self.get_sign())
+            raise MadeIllegalMove(self.get_sign(), 'incorrect number of moves')
 
     def turn(self, last_move: Move) -> Move:
         """
@@ -411,11 +411,12 @@ class Player:
                     pp.kill()
                 self._pp.kill()
         except Exception as e:
-            pass
+            logging.error(str(e))
         self._is_engine_running = False
 
     def is_alive(self) -> bool:
         try:
             return self._process.poll() is None
         except Exception as e:
+            logging.error(str(e))
             return False

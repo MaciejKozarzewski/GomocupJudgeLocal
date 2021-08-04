@@ -4,7 +4,8 @@ import copy
 from enum import IntEnum
 from typing import Optional
 from utils import get_value
-from game_rules import Sign, GameRules, check_freestyle, check_standard, check_renju, check_caro, is_forbidden
+from game_rules import Sign, Move, GameRules, check_freestyle, check_standard, check_renju, check_caro, is_forbidden
+from exceptions import MadeIllegalMove, MadeFoulMove
 
 
 class GameOutcome(IntEnum):
@@ -35,16 +36,6 @@ class GameOutcome(IntEnum):
             return GameOutcome.WHITE_WIN
         else:
             raise Exception('unknown game outcome \'' + s + '\'')
-
-
-class Move:
-    def __init__(self, row: int, col: int, sign: Sign):
-        self.row = row
-        self.col = col
-        self.sign = sign
-
-    def __str__(self) -> str:
-        return str(self.col) + ' ' + str(self.row)
 
 
 class Board:
@@ -110,11 +101,13 @@ class Board:
             return copy.deepcopy(self._played_moves[-1])
 
     def make_move(self, move: Move) -> None:
-        assert 0 <= move.row < self.rows() and 0 <= move.col < self.cols() and \
-               (move.sign == Sign.BLACK or move.sign == Sign.WHITE) and \
-               self.get_sign_at(move.row, move.col) == Sign.EMPTY
-        self._board[move.row][move.col] = int(move.sign)
-        self._played_moves.append(copy.deepcopy(move))
+        if 0 <= move.row < self.rows() and 0 <= move.col < self.cols() and \
+                (move.sign == Sign.BLACK or move.sign == Sign.WHITE) and \
+                self.get_sign_at(move.row, move.col) == Sign.EMPTY:
+            self._board[move.row][move.col] = int(move.sign)
+            self._played_moves.append(copy.deepcopy(move))
+        else:
+            raise MadeIllegalMove(move.sign, move)
 
     def get_outcome(self) -> GameOutcome:
         if self.number_of_moves() == 0:  # no outcome for empty board

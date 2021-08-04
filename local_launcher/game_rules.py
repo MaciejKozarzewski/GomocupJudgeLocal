@@ -26,6 +26,16 @@ class Sign(IntEnum):
             return '|'
 
 
+class Move:
+    def __init__(self, row: int, col: int, sign: Sign):
+        self.row = row
+        self.col = col
+        self.sign = sign
+
+    def __str__(self) -> str:
+        return str(self.col) + ' ' + str(self.row)
+
+
 class GameRules(IntEnum):
     FREESTYLE = 0
     STANDARD = 1
