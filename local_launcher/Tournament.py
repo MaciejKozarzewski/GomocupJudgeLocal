@@ -291,11 +291,6 @@ class Tournament:
 
 
 if __name__ == '__main__':
-    import cProfile
-
-    pr = cProfile.Profile()
-    pr.enable()
-
     # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
     tournament = Tournament('/home/maciek/Desktop/tournament/')
 
@@ -310,12 +305,10 @@ if __name__ == '__main__':
     tournament.start()
     while tournament.is_running():
         time.sleep(1)
-        # tournament.draw(30, False)
-        # cv2.imshow('preview', tournament.get_frame())
-        # cv2.waitKey(1000)
+        tournament.draw(30, False)
+        cv2.imshow('preview', tournament.get_frame())
+        cv2.waitKey(1000)
 
     tournament.cleanup()
-    # cv2.destroyWindow('preview')
-    pr.disable()
-    pr.print_stats()
+    cv2.destroyWindow('preview')
     exit(0)

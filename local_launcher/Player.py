@@ -160,10 +160,10 @@ class Player:
             else:
                 result += buf.decode('utf-8')
 
-            if self.get_memory() > self._max_memory:
-                raise TooMuchMemory(self.get_sign(), self.get_memory(), self._max_memory)
-
             if result.endswith('\n'):
+                if self.get_memory() > self._max_memory:
+                    raise TooMuchMemory(self.get_sign(), self.get_memory(), self._max_memory)
+
                 result = result.strip('\n')  # remove new line character at the end
                 self._received_messages.append(result)
                 logging.info('received \'' + result + '\' from engine \'' + self.get_name() + '\'')
