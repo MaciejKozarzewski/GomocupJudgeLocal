@@ -169,7 +169,6 @@ class Player:
                 logging.info('received \'' + result + '\' from engine \'' + self.get_name() + '\'')
                 return result
 
-        logging.info(str(self.is_alive()) + ' ' + str(self.is_on_move()))
         if self.is_alive():  # if process is alive and we got here it means timeout
             raise Timeouted(self.get_sign(), time_used(), timeout)
         elif self.is_on_move():  # if the process is dead but 'on move' it means crash
@@ -248,6 +247,14 @@ class Player:
         self._evaluation['memory'] = self.get_memory()
         return self._evaluation
 
+    def set_time_left(self, time_left: float) -> None:
+        """
+        Used to resume a game with given amount of used time.
+        :param time_left:
+        :return:
+        """
+        self._time_left = time_left
+
     def is_on_move(self) -> bool:
         return self._is_now_on_move
 
@@ -317,7 +324,7 @@ class Player:
         self._timer_stop()
         return self._parse_move_from_string(answer, self._sign)
 
-    def swap2board(self, list_of_moves) -> Union[str, list]:
+    def swap2board(self, list_of_moves) -> Union[str, list, Move]:
         """
         This method implements swap2 opening phase.
         If list of moves is empty, the engine will be asked to place first three stones.
@@ -359,7 +366,7 @@ class Player:
                 tmp = answer.split(' ')
                 if len(tmp) == 1:
                     result = [self._parse_move_from_string(tmp[0], Sign.WHITE)]
-                    return result
+                    return result[0]
                 elif len(tmp) == 2:
                     result = [self._parse_move_from_string(tmp[0], Sign.WHITE),
                               self._parse_move_from_string(tmp[1], Sign.BLACK)]
@@ -380,7 +387,7 @@ class Player:
             else:
                 tmp = answer.split(' ')
                 assert len(tmp) == 1
-                return [self._parse_move_from_string(tmp[0], Sign.WHITE)]
+                return self._parse_move_from_string(tmp[0], Sign.WHITE)
         else:
             raise MadeIllegalMove(self.get_sign(), 'incorrect number of moves')
 
@@ -401,7 +408,7 @@ class Player:
 
     def end(self) -> None:
         self._resume()
-        self._timer_stop()
+        self._is_now_on_move = False
         self._send('END')
         time.sleep(self._tolerance)
         try:

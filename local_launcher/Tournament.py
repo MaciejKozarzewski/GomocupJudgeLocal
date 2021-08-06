@@ -16,43 +16,75 @@ from Player import Player
 from exceptions import Timeouted, Crashed, MadeFoulMove, MadeIllegalMove, TooMuchMemory, Interrupted
 
 
+class GameConfig:
+    def __init__(self, black_player: str, white_player: str, opening: str, saved_state: str = '', index: int = None):
+        self.black_player = copy.deepcopy(black_player)
+        self.white_player = copy.deepcopy(white_player)
+        self.opening = copy.deepcopy(opening)
+        self.outcome = GameOutcome.NO_OUTCOME
+        self.saved_state = copy.deepcopy(saved_state)
+        self.index = index
+        self.pgn = ''
+        self.in_progress = False
+
+    def save(self) -> str:
+        return self.black_player + ':' + self.white_player + ':' + self.opening + ':' + str(self.outcome) + ':' + self.saved_state
+
+    @staticmethod
+    def load(text: str) -> GameConfig:
+        tmp = text.strip('\n').split(':')
+        assert len(tmp) == 5
+        result = GameConfig(tmp[0], tmp[1], tmp[2], tmp[4])
+        result.outcome = GameOutcome.from_string(tmp[3])
+        return result
+
+
 class PlayingThread(Thread):
     def __init__(self, manager: Tournament):
         super().__init__()
         self._manager = manager
-        self._config = manager.get_config()
+        self._full_config = manager.get_config()
         self._is_running = True
         self._match = None
 
-    def draw(self, size: int) -> Optional[np.ndarray]:
+    def draw(self, size: int, force_refresh: bool = False) -> Optional[np.ndarray]:
         if self._match is not None:
-            self._match.draw(size)
+            self._match.draw(size, force_refresh)
             return self._match.get_frame()
         else:
             return None
 
-    def _play_game(self, cfg_cross: dict, cfg_circle: dict, opening: str) -> tuple:
-        self._match = Match(Board(self._config['game_config']), Player(cfg_cross), Player(cfg_circle), opening)
+    def _play_game(self, config: GameConfig) -> GameConfig:
+        board = Board(self._full_config['game_config'])
+        player1 = Player(self._full_config[config.black_player])
+        player2 = Player(self._full_config[config.white_player])
+        self._match = Match(board, player1, player2, config.opening)
+        self._match.load_state(config.saved_state)
         try:
-            return self._match.play_game(), ''
+            config.outcome = self._match.play_game()
+            config.saved_state = ''
         except (Timeouted, Crashed, MadeFoulMove, MadeIllegalMove, TooMuchMemory) as e:
-            print('\n', e, '\n')
+            logging.warning(str(e))
+            config.saved_state = str(e)
             if e.sign == Sign.BLACK:
-                return GameOutcome.WHITE_WIN, str(e)
+                config.outcome = GameOutcome.WHITE_WIN
             else:
-                return GameOutcome.BLACK_WIN, str(e)
+                config.outcome = GameOutcome.BLACK_WIN
         except Interrupted as e:
-            return GameOutcome.NO_OUTCOME, 'in progress'
+            logging.warning(str(e))
+            config.saved_state = 'in progress = ' + self._match.save_state()
+        return config
 
     def run(self) -> None:
         while self._is_running:
-            idx, cfg = self._manager.get_game_to_play()
+            cfg = self._manager.get_game_to_play()
             if cfg is None:
                 self._is_running = False
                 break
-            outcome, comment = self._play_game(self._config[cfg[0]], self._config[cfg[1]], cfg[2])
-            self._manager.finish_gamed(idx, outcome, self._match.generate_pgn(), comment)
-
+            game_record = self._play_game(cfg)
+            game_record.pgn = self._match.generate_pgn()
+            game_record.in_progress = False
+            self._manager.finish_gamed(game_record)
             time.sleep(5.0)
 
     def cleanup(self) -> None:
@@ -82,7 +114,7 @@ class Tournament:
         self._tournament_lock = Lock()
         self._games = self._prepare_games()
         self._save_games()
-        self._pgn = ''
+        self._pgn = self._load_pgn()
 
         self._threads = []
         for i in range(self._config['games_in_parallel']):
@@ -109,28 +141,39 @@ class Tournament:
             with open(self._config['working_dir'] + '/games.txt', 'r') as file:
                 lines = file.readlines()
                 for line in lines:
-                    tmp = line[:-1].split(':')
-                    result.append([tmp[0], tmp[1], tmp[2], GameOutcome.from_string(tmp[3]), tmp[4]])
+                    tmp = GameConfig.load(line)
+                    result.append(tmp)
         else:
             print('creating new tournament state')
             openings = self._load_openings(self._config['openings'])
             for i in range(0, self._config['games_to_play'], 2):
                 op = openings[(i // 2) % len(openings)]
                 '''schedule two games with the same opening, but with players having different colors'''
-                result.append(['player_1', 'player_2', op, GameOutcome.NO_OUTCOME, ''])
+                result.append(GameConfig('player_1', 'player_2', op))
                 if i + 1 < self._config['games_to_play']:  # for odd number of games to play
-                    result.append(['player_2', 'player_1', op, GameOutcome.NO_OUTCOME, ''])
+                    result.append(GameConfig('player_2', 'player_1', op))
+
+        for i in range(len(result)):
+            result[i].index = i
+            if result[i].outcome != GameOutcome.NO_OUTCOME:
+                self._finished_games += 1
         return result
 
     def _save_games(self) -> None:
         with open(self._config['working_dir'] + '/games.txt', 'w') as file:
-            for line in self._games:
-                ''' black player, white player, opening, outcome'''
-                file.write(line[0] + ':' + line[1] + ':' + line[2] + ':' + str(line[3]) + ':' + line[4] + '\n')
+            for game in self._games:
+                file.write(game.save() + '\n')
 
     def _save_pgn(self) -> None:
         with open(self._config['working_dir'] + '/result.pgn', 'w') as file:
             file.write(self._pgn)
+
+    def _load_pgn(self) -> str:
+        result = ''
+        if os.path.exists(self._config['working_dir'] + '/result.pgn'):
+            with open(self._config['working_dir'] + '/result.pgn', 'r') as file:
+                result = file.read()
+        return result
 
     def get_summary(self) -> str:
         result = ''
@@ -140,16 +183,16 @@ class Tournament:
         wins = 0
         draws = 0
         losses = 0
-        for g in self._games:
-            if g[3] == GameOutcome.DRAW:
+        for game in self._games:
+            if game.outcome == GameOutcome.DRAW:
                 draws += 1
-            elif g[3] == GameOutcome.BLACK_WIN:
-                if g[0] == 'player_1':
+            elif game.outcome == GameOutcome.BLACK_WIN:
+                if game.black_player == 'player_1':
                     wins += 1
                 else:
                     losses += 1
-            elif g[3] == GameOutcome.WHITE_WIN:
-                if g[0] == 'player_2':
+            elif game.outcome == GameOutcome.WHITE_WIN:
+                if game.black_player == 'player_2':
                     wins += 1
                 else:
                     losses += 1
@@ -163,21 +206,19 @@ class Tournament:
         for t in self._threads:
             t.start()
 
-    def get_game_to_play(self) -> Optional[tuple]:
+    def get_game_to_play(self) -> Optional[GameConfig]:
         with self._tournament_lock:
-            if self._started_games < self._config['games_to_play']:
-                result = self._started_games, self._games[self._started_games]
-                self._started_games += 1
+            for game in self._games:
+                if game.outcome == GameOutcome.NO_OUTCOME and not game.in_progress:
+                    game.in_progress = True
+                    self._started_games += 1
+                    return copy.deepcopy(game)
+            return None
 
-                return result
-            else:
-                return -1, None
-
-    def finish_gamed(self, idx: int, outcome: GameOutcome, pgn: str, comment: str) -> None:
+    def finish_gamed(self, game: GameConfig) -> None:
         with self._tournament_lock:
-            self._games[idx][3] = outcome
-            self._games[idx][4] = comment
-            self._pgn += pgn + '\n'
+            self._games[game.index] = game
+            self._pgn += game.pgn
             self._finished_games += 1
             self._save_games()
             self._save_pgn()
@@ -186,12 +227,12 @@ class Tournament:
     def get_config(self) -> dict:
         return copy.deepcopy(self._config)
 
-    def draw(self, size: int) -> None:
+    def draw(self, size: int, force_reshresh: bool = False) -> None:
         height = 0
         width = 0
         imgs = []
         for t in self._threads:
-            tmp = t.draw(size)
+            tmp = t.draw(size, force_reshresh)
             if tmp is None:
                 return
             imgs.append(tmp)
@@ -229,7 +270,7 @@ class Tournament:
                     'working_dir': './'}
 
         result = {'games_to_play': 10,
-                  'games_in_parallel': 4,
+                  'games_in_parallel': 1,
                   'openings': 'openings_freestyle.txt',  # can also be 'swap2'
                   'visualise': True,
                   'game_config': {'rows': 20,
@@ -241,14 +282,21 @@ class Tournament:
         return result
 
     def is_running(self) -> bool:
-        return self._is_running
+        with self._tournament_lock:
+            return self._is_running and self._finished_games < self._config['games_to_play']
 
     def stop(self) -> None:
-        self._is_running = False
+        with self._tournament_lock:
+            self._is_running = False
 
 
 if __name__ == '__main__':
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    import cProfile
+
+    pr = cProfile.Profile()
+    pr.enable()
+
+    # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
     tournament = Tournament('/home/maciek/Desktop/tournament/')
 
 
@@ -261,10 +309,13 @@ if __name__ == '__main__':
 
     tournament.start()
     while tournament.is_running():
-        tournament.draw(24)
-        cv2.imshow('preview', tournament.get_frame())
-        cv2.waitKey(1000)
+        time.sleep(1)
+        # tournament.draw(30, False)
+        # cv2.imshow('preview', tournament.get_frame())
+        # cv2.waitKey(1000)
 
     tournament.cleanup()
-    cv2.destroyWindow('preview')
+    # cv2.destroyWindow('preview')
+    pr.disable()
+    pr.print_stats()
     exit(0)

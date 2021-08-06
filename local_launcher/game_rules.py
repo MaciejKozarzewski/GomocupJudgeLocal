@@ -35,6 +35,27 @@ class Move:
     def __str__(self) -> str:
         return str(self.col) + ' ' + str(self.row)
 
+    def save(self) -> str:
+        """
+        This method encodes move in the following format [X - black / O - white][letter - row][number - column].
+        For example Xd4 means Black stone in row 3 (indexing from 0) and column 4 (also indexing from 0)
+        :return:
+        """
+        return str(self.sign) + chr(97 + self.row) + str(self.col)
+
+    @staticmethod
+    def load(txt: str) -> Move:
+        """
+        This method decodes string created by the encode() method back into Move object.
+        :param txt:
+        :return:
+        """
+        assert (txt[0] == 'X' or txt[0] == 'O') and txt[1].isalpha() and txt[2:].isnumeric()
+        if txt[0] == 'X':
+            return Move(ord(txt[1]) - 97, int(txt[2:]), Sign.BLACK)
+        else:
+            return Move(ord(txt[1]) - 97, int(txt[2:]), Sign.WHITE)
+
 
 class GameRules(IntEnum):
     FREESTYLE = 0

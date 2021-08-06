@@ -1,9 +1,23 @@
 from Board import Board, Move, Sign, GameOutcome
 from Player import Player
 import copy
-from typing import Union
+from typing import Union, Optional
 import numpy as np
 import cv2
+
+
+def parse_action(action: Union[str, Move, list], cut_offset: int = 0) -> str:
+    if type(action) == str:
+        return action
+    elif type(action) == Move:
+        return action.save()[cut_offset:]  # cut first letter - sign
+    elif type(action) == list:
+        txt = ''
+        for a in action:
+            txt += a.save()[cut_offset:] + ','
+        return txt[:-1]
+    else:
+        raise Exception('incorrect argument')
 
 
 class Match:
@@ -16,107 +30,133 @@ class Match:
         self._frame = None
         self._prev_number_of_moves = -1
 
-    def _get_black_player(self) -> Player:
-        if self._player1.get_sign() == Sign.BLACK:
+    def _get_player(self, sign: Sign) -> Optional[Player]:
+        if self._player1.get_sign() == sign:
             return self._player1
-        else:
+        elif self._player2.get_sign() == sign:
             return self._player2
-
-    def _get_white_player(self) -> Player:
-        if self._player1.get_sign() == Sign.WHITE:
-            return self._player1
         else:
-            return self._player2
+            return None
 
     def _get_player_to_move(self) -> Player:
-        if self._board.get_sign_to_move() == Sign.BLACK:
-            return self._get_black_player()
-        else:
-            return self._get_white_player()
+        return self._get_player(self._board.get_sign_to_move())
 
-    def _swap2(self) -> None:
-        # first player chooses 3-stone opening
-        player1_opening = self._player1.swap2board([])
-        self._save_action(player1_opening)  # append opening for further PGN generation
+    def _swap2(self) -> int:
+        if len(self._move_log) >= 1:  # move log contains saved state
+            player1_opening = self._load_action(0)
+        else:  # first player chooses 3-stone opening
+            player1_opening = self._player1.swap2board([])
+            self._save_action(player1_opening)  # append opening for further PGN generation
+
         for m in player1_opening:
             self._board.make_move(m)
 
-        player2_response = self._player2.swap2board(player1_opening)
-        self._save_action(player2_response)
+        if len(self._move_log) >= 2:  # move log contains saved state
+            player2_response = self._load_action(1)
+        else:
+            player2_response = self._player2.swap2board(player1_opening)
+            self._save_action(player2_response)
 
         if type(player2_response) == str:  # player2 decides to swap and therefore play as black
             assert str(player2_response) == 'SWAP'
             self._player1.set_sign(Sign.WHITE)
             self._player2.set_sign(Sign.BLACK)
-            return
-        else:
-            assert type(player2_response) == list
+            return 2
+        elif type(player2_response) == Move:  # player2 decides to stay with white
+            self._board.make_move(player2_response)
+            self._player1.set_sign(Sign.BLACK)
+            self._player2.set_sign(Sign.WHITE)
+            return 2
+        elif type(player2_response) == list and len(player2_response) == 2:  # player2 decides to balance the position and let player1 choose the color
             for m in player2_response:
                 self._board.make_move(m)
-
-            if len(player2_response) == 1:  # player2 decides to stay with white
-                self._player1.set_sign(Sign.BLACK)
-                self._player2.set_sign(Sign.WHITE)
-                return
-            elif len(player2_response) == 2:  # player2 decides to balance the position and let player1 choose the color
+            if len(self._move_log) >= 3:  # move log contains saved state
+                player1_decision = self._load_action(2)
+            else:
                 player1_decision = self._player1.swap2board(player1_opening + player2_response)
                 self._save_action(player1_decision)
 
-                if type(player1_decision) == str:  # player1 decides to swap and therefore play as black
-                    assert str(player1_decision) == 'SWAP'
-                    self._player1.set_sign(Sign.BLACK)
-                    self._player2.set_sign(Sign.WHITE)
-                    return
-                else:  # player1 decides to stay with white
-                    assert type(player1_decision) == list and len(player1_decision) == 1
-                    self._board.make_move(player1_decision[0])
-                    self._player1.set_sign(Sign.WHITE)
-                    self._player2.set_sign(Sign.BLACK)
-                    return
+            if type(player1_decision) == str:  # player1 decides to swap and therefore play as black
+                assert str(player1_decision) == 'SWAP'
+                self._player1.set_sign(Sign.BLACK)
+                self._player2.set_sign(Sign.WHITE)
+                return 3
+            elif type(player1_decision) == Move:  # player1 decides to stay with white
+                assert type(player1_decision) == Move
+                self._board.make_move(player1_decision)
+                self._player1.set_sign(Sign.WHITE)
+                self._player2.set_sign(Sign.BLACK)
+                return 3
             else:
-                raise Exception('too many balancing stones')
+                raise Exception('incorrect response')
+        else:
+            raise Exception('incorrect response')
+
+    def _start_from_opening(self) -> int:
+        self._player1.set_sign(Sign.BLACK)
+        self._player2.set_sign(Sign.WHITE)
+        moves = self._opening.split(' ')
+        for move in moves:
+            tmp = move.split(',')
+            m = Move(int(tmp[0]), int(tmp[1]), self._board.get_sign_to_move())
+            self._save_action(m)
+            self._board.make_move(m)
+        return len(moves)
 
     def _save_action(self, action: Union[Move, list, str]) -> None:
-        def encode_move(move: Move) -> str:
-            return chr(97 + move.row) + str(move.col)
+        self._move_log.append(action)
 
-        if type(action) == str:
-            self._move_log.append(action)
-        elif type(action) == Move:
-            self._move_log.append(encode_move(action))
-        elif type(action) == list:
-            tmp = ''
-            for move in action:
-                tmp += encode_move(move) + ','
-            self._move_log.append(tmp[:-1])  # cutting last character ','
-        else:
-            raise Exception('incorrect type')
+    def _load_action(self, index: int) -> Union[str, Move, list]:
+        return self._move_log[index]
+
+    def save_state(self) -> str:
+        assert not self._player1.is_on_move() and not self._player2.is_on_move()
+        result = str(round(self._player1.get_time_left(), 3))
+        result += ' ' + str(round(self._player2.get_time_left(), 3))
+        for action in self._move_log:
+            result += ' ' + parse_action(action)
+        return result
+
+    def load_state(self, state: str) -> None:
+        if state.startswith('in progress = '):
+            state = state[14:]
+        tmp = state.split(' ')
+        if len(tmp) >= 2:
+            self._player1.set_time_left(float(tmp[0]))
+            self._player2.set_time_left(float(tmp[1]))
+        for action in tmp[2:]:
+            if action == 'SWAP':
+                self._move_log.append(action)
+            else:
+                tmp = action.split(',')
+                result = []
+                for m in tmp:
+                    result.append(Move.load(m))
+                if len(result) == 1:
+                    self._move_log.append(result[0])
+                else:
+                    self._move_log.append(result)
 
     def play_game(self) -> GameOutcome:
         self._player1.start(self._board.rows(), self._board.cols(), self._board.rules())
         self._player2.start(self._board.rows(), self._board.cols(), self._board.rules())
-        self._move_log = []
 
         if self._opening == 'swap2':
-            self._swap2()
-        elif len(self._opening) > 0:
-            self._player1.set_sign(Sign.BLACK)
-            self._player2.set_sign(Sign.WHITE)
-            moves = self._opening.split(' ')
-            for move in moves:
-                tmp = move.split(',')
-                m = Move(int(tmp[0]), int(tmp[1]), self._board.get_sign_to_move())
-                self._save_action(m)
-                self._board.make_move(m)
-        '''now the opening is prepared'''
+            actions = self._swap2()
+        else:
+            actions = self._start_from_opening()
 
-        first_move = self._get_player_to_move().board(self._board.get_played_moves())
-        self._save_action(first_move)
-        self._board.make_move(first_move)
+        '''making all remaining loaded moves'''
+        for i in range(actions, len(self._move_log)):
+            self._board.make_move(self._load_action(i))
 
-        second_move = self._get_player_to_move().board(self._board.get_played_moves())
-        self._save_action(second_move)
-        self._board.make_move(second_move)
+        '''Now when opening is prepared, both players can receive BOARD command.'''
+        for i in range(2):
+            move = self._get_player_to_move().board(self._board.get_played_moves())
+            self._save_action(move)
+            self._board.make_move(move)
+            if self._board.get_outcome() != GameOutcome.NO_OUTCOME:
+                return self._board.get_outcome()
 
         '''now both players got board state and can make moves'''
         while self._board.get_outcome() == GameOutcome.NO_OUTCOME:
@@ -132,9 +172,11 @@ class Match:
         self._player2.end()
 
     def generate_pgn(self) -> str:
-        result = '[White \"' + self._get_white_player().get_name() + '\"]\n'
-        result += '[Black \"' + self._get_black_player().get_name() + '\"]\n'
         outcome = self._board.get_outcome()
+        if outcome == GameOutcome.NO_OUTCOME:
+            return ''
+        result = '[White \"' + self._get_player(Sign.WHITE).get_name() + '\"]\n'
+        result += '[Black \"' + self._get_player(Sign.BLACK).get_name() + '\"]\n'
         if outcome == GameOutcome.WHITE_WIN:
             tmp = '1-0'
         elif outcome == GameOutcome.BLACK_WIN:
@@ -144,16 +186,17 @@ class Match:
         else:
             return ''  # TODO maybe it's better to throw an exception instead of returning empty PGN?
         result += '[Result \"' + tmp + '\"]\n'
+
         for i in range(0, len(self._move_log), 2):
-            result += str(1 + i // 2) + '. ' + self._move_log[i]
+            result += str(1 + i // 2) + '. ' + parse_action(self._move_log[i], 1)
             if i + 1 < len(self._move_log):
-                result += ' ' + self._move_log[i + 1]
+                result += ' ' + parse_action(self._move_log[i + 1], 1)
             result += ' '
         return result + '\n'
 
-    def draw(self, size: int = 15) -> None:
-        if self._board.number_of_moves() == self._prev_number_of_moves:
-            return  # do not redraw if no new moves were played
+    def draw(self, size: int = 15, force_refresh: bool = False) -> None:
+        if self._board.number_of_moves() == self._prev_number_of_moves and not force_refresh:
+            return  # do not re-draw if no new moves were played
         else:
             self._prev_number_of_moves = self._board.number_of_moves()
 
