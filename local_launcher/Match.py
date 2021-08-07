@@ -95,13 +95,16 @@ class Match:
     def _start_from_opening(self) -> int:
         self._player1.set_sign(Sign.BLACK)
         self._player2.set_sign(Sign.WHITE)
-        moves = self._opening.split(' ')
-        for move in moves:
-            tmp = move.split(',')
-            m = Move(int(tmp[0]), int(tmp[1]), self._board.get_sign_to_move())
-            self._save_action(m)
-            self._board.make_move(m)
-        return len(moves)
+        if len(self._move_log) == 0:  # check if the game is a new game (not a resumed one)
+            moves = self._opening.split(' ')
+            for move in moves:
+                tmp = move.split(',')
+                m = Move(int(tmp[0]), int(tmp[1]), self._board.get_sign_to_move())
+                self._save_action(m)
+                self._board.make_move(m)
+            return len(moves)
+        else:  # if the game is resumed, the opening moves will already be in the game state
+            return 0
 
     def _save_action(self, action: Union[Move, list, str]) -> None:
         self._move_log.append(action)
@@ -147,8 +150,9 @@ class Match:
             actions = self._start_from_opening()
 
         '''making all remaining loaded moves'''
-        for i in range(actions, len(self._move_log)):
-            self._board.make_move(self._load_action(i))
+        for i in range(actions, len(self._move_log), 1):
+            action = self._load_action(i)
+            self._board.make_move(action)
 
         '''Now when opening is prepared, both players can receive BOARD command.'''
         for i in range(2):

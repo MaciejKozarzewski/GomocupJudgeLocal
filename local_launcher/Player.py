@@ -152,18 +152,23 @@ class Player:
         def time_used() -> float:
             return get_time() - start
 
+        counter = 0
         while self._is_engine_running and time_used() < timeout:
             try:
                 buf = self._queue.get_nowait()
             except Empty:
-                time.sleep(0.1)
+                time.sleep(0.2)
             else:
                 result += buf.decode('utf-8')
+            counter += 1
+
+            if counter % 5 == 0:
+                counter = 0
+                used_memory = self.get_memory()
+                if used_memory > self._max_memory:
+                    raise TooMuchMemory(self.get_sign(), used_memory, self._max_memory)
 
             if result.endswith('\n'):
-                if self.get_memory() > self._max_memory:
-                    raise TooMuchMemory(self.get_sign(), self.get_memory(), self._max_memory)
-
                 result = result.strip('\n')  # remove new line character at the end
                 self._received_messages.append(result)
                 logging.info('received \'' + result + '\' from engine \'' + self.get_name() + '\'')
