@@ -129,7 +129,7 @@ class Tournament:
             with open(self._config['working_dir'] + '/' + filename) as file:
                 result = file.readlines()
                 for i in range(len(result)):
-                    result[i] = result[i].replace('\n', '')
+                    result[i] = result[i].replace('\n', '').strip()
                 return result
         else:
             raise Exception('could not read file with openings')
@@ -290,25 +290,30 @@ class Tournament:
             self._is_running = False
 
 
-if __name__ == '__main__':
-    # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-    tournament = Tournament('/home/maciek/Desktop/tournament/')
-
+def run_tournament(path: str, draw_boards: bool = False) -> None:
+    tournament = Tournament(path)
 
     def signal_handler(sig, frame):
         logging.info('Requesting interruption, this may take a while...')
         tournament.stop()
 
-
     signal.signal(signal.SIGINT, signal_handler)
 
     tournament.start()
     while tournament.is_running():
-        time.sleep(1)
-        tournament.draw(30, False)
-        cv2.imshow('preview', tournament.get_frame())
-        cv2.waitKey(1000)
+        if draw_boards:
+            tournament.draw(30, True)
+            cv2.imshow('preview', tournament.get_frame())
+            cv2.waitKey(100)
+        else:
+            time.sleep(1)
 
     tournament.cleanup()
-    cv2.destroyWindow('preview')
+    if draw_boards:
+        cv2.destroyWindow('preview')
+
+
+if __name__ == '__main__':
+    # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    run_tournament('somepath')
     exit(0)
