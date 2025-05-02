@@ -13,7 +13,7 @@ import logging
 from Match import Match
 from Board import Board, Sign, GameOutcome
 from Player import Player
-from exceptions import Timeouted, Crashed, MadeFoulMove, MadeIllegalMove, TooMuchMemory, Interrupted
+from exceptions import Timeouted, Crashed, MadeIllegalMove, TooMuchMemory, Interrupted
 
 
 class GameConfig:
@@ -63,7 +63,7 @@ class PlayingThread(Thread):
         try:
             config.outcome = self._match.play_game()
             config.saved_state = ''
-        except (Timeouted, Crashed, MadeFoulMove, MadeIllegalMove, TooMuchMemory) as e:
+        except (Timeouted, Crashed, MadeIllegalMove, TooMuchMemory) as e:
             logging.warning(str(e))
             config.saved_state = str(e)
             if e.sign == Sign.BLACK:
@@ -315,5 +315,7 @@ def run_tournament(path: str, draw_boards: bool = False) -> None:
 
 if __name__ == '__main__':
     # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-    run_tournament('somepath')
+    run_tournament('/home/maciek/Desktop/tournament/590vs583s/', False)
+    # run_tournament('/home/maciek/Desktop/tournament/policy_vs_value/', False)
+    # run_tournament('/home/maciek/Desktop/tournament/big_vs_small_f/')
     exit(0)

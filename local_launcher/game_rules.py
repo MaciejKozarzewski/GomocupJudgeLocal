@@ -4,10 +4,6 @@ import numpy as np
 import copy
 from enum import IntEnum, Enum
 
-'''
-All methods here returns true if stone at board[row][col] is a part of a winning line, false otherwise.
-'''
-
 
 class Sign(IntEnum):
     EMPTY = 0
@@ -61,7 +57,8 @@ class GameRules(IntEnum):
     FREESTYLE = 0
     STANDARD = 1
     RENJU = 4
-    CARO = 8
+    CARO5 = 8
+    CARO6 = 9
 
     def __str__(self) -> str:
         if self.value == GameRules.FREESTYLE:
@@ -70,8 +67,12 @@ class GameRules(IntEnum):
             return 'STANDARD'
         elif self.value == GameRules.RENJU:
             return 'RENJU'
+        elif self.value == GameRules.CARO5:
+            return 'CARO5'
+        elif self.value == GameRules.CARO6:
+            return 'CARO6'
         else:
-            return 'CARO'
+            return 'UNKNOWN'
 
     @staticmethod
     def from_string(s: str) -> GameRules:
@@ -81,148 +82,18 @@ class GameRules(IntEnum):
             return GameRules.STANDARD
         elif s.upper() == str(GameRules.RENJU):
             return GameRules.RENJU
-        elif s.upper() == str(GameRules.CARO):
-            return GameRules.CARO
+        elif s.upper() == str(GameRules.CARO5):
+            return GameRules.CARO5
+        elif s.upper() == str(GameRules.CARO6):
+            return GameRules.CARO6
         else:
             raise Exception('unknown rules \'' + s + '\'')
 
 
-class FoulType(Enum):
-    FOUL_6 = 0
-    FOUL4x4 = 1
-    FOUL_3x3 = 2
-
-    def __str__(self) -> str:
-        if self.value == GameRules.FOUL_6:
-            return 'OVERLINE'
-        elif self.value == GameRules.FOUL4x4:
-            return 'DOUBLE FOUR'
-        else:
-            return 'DOUBLE THREE'
-
-
-class Direction(IntEnum):
-    HORIZONTAL = 0
-    VERTICAL = 1
-    DIAGONAL = 2
-    ANTIDIAGONAL = 3
-
-
-all_directions = [Direction.HORIZONTAL, Direction.VERTICAL, Direction.DIAGONAL, Direction.ANTIDIAGONAL]
-
-
-class Line:
-    def __init__(self, board: np.ndarray, row: int, col: int, direction: Direction):
-        """
-        Creates a line of stones on board around point (row, col) in specified direction.
-        :param board:
-        :param row:
-        :param col:
-        :param direction:
-        """
-        self._line = ''
-        dir_row = [1, 0, 1, 1]
-        dir_col = [0, 1, 1, -1]
-        for i in range(-5, 6, 1):
-            x = row + dir_row[direction] * i
-            y = col + dir_col[direction] * i
-            if 0 <= x < board.shape[0] and 0 <= y < board.shape[1]:  # check if position is valid
-                self._line += str(Sign(board[x][y]))
-            else:
-                self._line += str(Sign.OUT_OF_BOARD)
-
-        self._overlines = ['XXXXXX']
-        self._fives = ['XXXXX']
-        self._fours = ['XXXX_', 'XXX_X', 'XX_XX', 'X_XXX', '_XXXX']
-        self._inline_double_fours = ['XXX_X_XXX', 'XX_XX_XX', 'X_XXX_X']
-        self._threes = ['__XXX_', '_XXX__', '_XX_X_', '_X_XX_']
-        self._inline_double_threes = []
-        self._blocked_fives = ['OXXXXXO']
-
-    @staticmethod
-    def _invert_line(line: str) -> str:
-        result = ''
-        for i in range(len(line)):
-            if line[i] == 'X':
-                result += 'O'
-            elif line[i] == 'O':
-                result += 'X'
-            else:
-                result += line[i]
-        return result
-
-    def _has_pattern(self, sign: Sign, list_of_patterns: list) -> bool:
-        if sign == Sign.BLACK or sign == Sign.WHITE:
-            '''patterns are defined for cross, so to handle circles we have to invert signs'''
-            tmp_line = self._line if sign == Sign.BLACK else self._invert_line(self._line)
-            return any((pattern in tmp_line) for pattern in list_of_patterns)
-        else:
-            return False
-
-    def is_overline(self, sign: Sign) -> bool:
-        return self._has_pattern(sign, self._overlines)
-
-    def is_five(self, sign: Sign) -> bool:
-        return self._has_pattern(sign, self._fives)
-
-    def is_four(self, sign: Sign) -> bool:
-        return self._has_pattern(sign, self._fours)
-
-    def is_double_four(self, sign: Sign) -> bool:
-        return self._has_pattern(sign, self._inline_double_fours)
-
-    def is_three(self, sign: Sign) -> bool:
-        return self._has_pattern(sign, self._threes)
-
-    def is_double_three(self, sign: Sign) -> bool:
-        return self._has_pattern(sign, self._inline_double_threes)
-
-    def is_blocked_five(self, sign: Sign) -> bool:
-        return self._has_pattern(sign, self._blocked_fives)
-
-
-def check_freestyle(board: np.ndarray, row: int, col: int) -> bool:
-    assert 0 <= row < board.shape[0] and 0 <= col < board.shape[1]
-    sign = Sign(board[row][col])
-    for direction in all_directions:
-        if Line(board, row, col, direction).is_five(sign):
-            return True
-    return False
-
-
-def check_standard(board: np.ndarray, row: int, col: int) -> bool:
-    assert 0 <= row < board.shape[0] and 0 <= col < board.shape[1]
-    sign = Sign(board[row][col])
-    for direction in all_directions:
-        line = Line(board, row, col, direction)
-        if line.is_five(sign) and not line.is_overline(sign):
-            return True
-    return False
-
-
-def check_renju(board: np.ndarray, row: int, col: int) -> bool:
-    """
-    Adapted from Piskvork
-    (C) 2012-2015 Tianyi Hao
-    (C) 2016 Petr Lastovicka
-    (C) 2017 Kai Sun
-    This program is free software: you can redistribute it and/or modify it under the terms of
-    the GNU General Public License as published by the Free Software Foundation,
-    either version 3 of the License, or (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
-    without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-    See the GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License along with this program.
-    If not, see <http://www.gnu.org/licenses/.
-    """
-    if board[row][col] == Sign.CIRCLE:
-        return check_standard(board, row, col)
-
+def is_forbidden(board: np.ndarray, move: Move) -> bool:
     # currently only deal with square board
     global l1, l2, l3, l4, X, Y
-    X, Y = row, col
+    X, Y = move.row, move.col
     if len(board) != len(board[0]):
         return False
     N = len(board)
@@ -243,7 +114,7 @@ def check_renju(board: np.ndarray, row: int, col: int) -> bool:
             x = self.x
             p = self.p
             for i in range(max(p - 5, 0), min(p, N - 6) + 1):
-                if x[i] + x[i + 1] + x[i + 2] + x[i + 3] + x[i + 4] + x[i + 5] == 6:  # XXXXXX
+                if x[i] + x[i + 1] + x[i + 2] + x[i + 3] + x[i + 4] + x[i + 5] == 6:
                     return 1
             return 0
 
@@ -251,7 +122,8 @@ def check_renju(board: np.ndarray, row: int, col: int) -> bool:
             x = self.x
             p = self.p
             for i in range(max(p - 4, 0), min(p, N - 5) + 1):
-                if x[i] + x[i + 1] + x[i + 2] + x[i + 3] + x[i + 4] == 5 and x[i - 1] != 1 and x[i + 5] != 1:  # XXXXX
+                if x[i] + x[i + 1] + x[i + 2] + x[i + 3] + x[i + 4] == 5 and \
+                        x[i - 1] != 1 and x[i + 5] != 1:  # XXXXX
                     return 1
             return 0
 
@@ -259,19 +131,23 @@ def check_renju(board: np.ndarray, row: int, col: int) -> bool:
             x = self.x
             p = self.p
             for i in range(max(p - 4, 0), min(p, N - 5) + 1):
-                if x[i] + x[i + 1] + x[i + 2] + x[i + 3] + x[i + 4] == 4 and x[i - 1] != 1 and x[i + 5] != 1:
+                if x[i] + x[i + 1] + x[i + 2] + x[i + 3] + x[i + 4] == 4 and \
+                        x[i - 1] != 1 and x[i + 5] != 1:
                     if x[i + 4] == 0:  # XXXX_
                         return 1
                     elif x[i + 3] == 0:  # XXX_X
-                        if p == i + 4 and x[i + 5] == 0 and x[i + 6] == 1 and x[i + 7] == 1 and x[i + 8] == 1 and x[i + 9] != 1:  # XXX_X_XXX
+                        if p == i + 4 and x[i + 5] == 0 and x[i + 6] == 1 and \
+                                x[i + 7] == 1 and x[i + 8] == 1 and x[i + 9] != 1:  # XXX_X_XXX
                             return 2
                         return 1
                     elif x[i + 2] == 0:  # XX_XX
-                        if (p == i + 4 or p == i + 3) and x[i + 5] == 0 and x[i + 6] == 1 and x[i + 7] == 1 and x[i + 8] != 1:  # XX_XX_XX
+                        if (p == i + 4 or p == i + 3) and x[i + 5] == 0 and \
+                                x[i + 6] == 1 and x[i + 7] == 1 and x[i + 8] != 1:  # XX_XX_XX
                             return 2
                         return 1
                     elif x[i + 1] == 0:  # X_XXX
-                        if (x[i + 5] == 0 and x[i + 6] == 1 and x[i + 7] != 1) and (p == i + 4 or p == i + 3 or p == i + 2):  # X_XXX_X
+                        if (x[i + 5] == 0 and x[i + 6] == 1 and x[i + 7] != 1) and \
+                                (p == i + 4 or p == i + 3 or p == i + 2):  # X_XXX_X
                             return 2
                         return 1
                     else:  # _XXXX
@@ -361,24 +237,52 @@ def check_renju(board: np.ndarray, row: int, col: int) -> bool:
     return foulr(X, Y, 0) != 0
 
 
-def check_caro(board: np.ndarray, row: int, col: int) -> bool:
-    assert 0 <= row < board.shape[0] and 0 <= col < board.shape[1]
-    sign = Sign(board[row][col])
-    for direction in all_directions:
-        line = Line(board, row, col, direction)
-        if line.is_five(sign) and not line.is_blocked_five(sign):
-            return True
-        if line.is_overline(sign):
-            return True
-    return False
+def is_winning(rule: GameRules, board: np.ndarray, move: Move) -> int:
+    assert board.shape[0] == board.shape[1]
+    board_size = board.shape[0]
+    x, y = move.row, move.col
 
+    if rule == GameRules.RENJU and move.sign == Sign.BLACK and is_forbidden(board, move):
+        return -1
 
-def is_forbidden(board: np.ndarray, row: int, col: int) -> bool:
-    '''
-    Used for renju rules.
-    :param board:
-    :param row:
-    :param col:
-    :return:
-    '''
-    return False
+    nx = [0, 1, -1, 1]
+    ny = [1, 0, 1, 1]
+    for d in range(4):
+        c = 1
+        blocked = 0
+        _x, _y = x, y
+        for i in range(1, 6):
+            _x += nx[d]
+            _y += ny[d]
+            if _x < 0 or _x >= board_size:
+                break
+            if _y < 0 or _y >= board_size:
+                break
+            if board[_x][_y] != board[x][y]:
+                if board[_x][_y] != 0:
+                    blocked += 1
+                break
+            c += 1
+        _x, _y = x, y
+        for i in range(1, 6):
+            _x -= nx[d]
+            _y -= ny[d]
+            if _x < 0 or _x >= board_size:
+                break
+            if _y < 0 or _y >= board_size:
+                break
+            if board[_x][_y] != board[x][y]:
+                if board[_x][_y] != 0:
+                    blocked += 1
+                break
+            c += 1
+
+        if (rule == GameRules.FREESTYLE or rule == GameRules.RENJU) and c >= 5:
+            return 1
+        if rule == GameRules.STANDARD and c == 5:
+            return 1
+        if rule == GameRules.CARO5 and c == 5 and blocked < 2:
+            return 1
+        if rule == GameRules.CARO6 and (c > 5 or (c == 5 and blocked < 2)):
+            return 1
+    return 0

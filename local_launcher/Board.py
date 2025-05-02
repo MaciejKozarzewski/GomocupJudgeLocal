@@ -4,8 +4,8 @@ import copy
 from enum import IntEnum
 from typing import Optional
 from utils import get_value
-from game_rules import Sign, Move, GameRules, check_freestyle, check_standard, check_renju, check_caro, is_forbidden
-from exceptions import MadeIllegalMove, MadeFoulMove
+from game_rules import Sign, Move, GameRules, is_winning
+from exceptions import MadeIllegalMove
 
 
 class GameOutcome(IntEnum):
@@ -101,28 +101,41 @@ class Board:
             return copy.deepcopy(self._played_moves[-1])
 
     def make_move(self, move: Move) -> None:
-        if 0 <= move.row < self.rows() and 0 <= move.col < self.cols() and \
-                (move.sign == Sign.BLACK or move.sign == Sign.WHITE) and \
-                self.get_sign_at(move.row, move.col) == Sign.EMPTY:
+        if self.is_inside(move.row, move.col) and self.get_sign_at(move.row, move.col) == Sign.EMPTY and \
+                (move.sign == Sign.BLACK or move.sign == Sign.WHITE):
             self._board[move.row][move.col] = int(move.sign)
             self._played_moves.append(copy.deepcopy(move))
         else:
             raise MadeIllegalMove(move.sign, move)
 
+    def is_inside(self, row: int, column: int) -> bool:
+        return 0 <= row < self.rows() and 0 <= column < self.cols()
+
+    def is_full(self) -> bool:
+        result = 0
+        for row in range(self.rows()):
+            for col in range(self.cols()):
+                result += int(self.get_sign_at(row, col) == Sign.EMPTY)
+        return result == 0
+
     def get_outcome(self) -> GameOutcome:
         if self.number_of_moves() == 0:  # no outcome for empty board
             return GameOutcome.NO_OUTCOME
 
-        if self._is_move_forbidden(self.get_last_move()):  # if last move was forbidden, the other player wins
-            if self.get_last_move().sign == Sign.BLACK:
+        last_move = self.get_last_move()
+
+        outcome = is_winning(self._rules, np.copy(self._board), last_move)
+
+        if outcome == 1:
+            if last_move.sign == Sign.BLACK:
+                return GameOutcome.BLACK_WIN
+            else:
+                return GameOutcome.WHITE_WIN
+        elif outcome == -2:
+            if last_move.sign == Sign.BLACK:
                 return GameOutcome.WHITE_WIN
             else:
                 return GameOutcome.BLACK_WIN
-        elif self._is_move_winning(self.get_last_move()):  # if last move was winning, this player wins
-            if self.get_last_move().sign == Sign.BLACK:
-                return GameOutcome.BLACK_WIN
-            else:
-                return GameOutcome.WHITE_WIN
 
         empty_spots = 0
         for row in range(self.rows()):
@@ -140,21 +153,3 @@ class Board:
 
         return GameOutcome.NO_OUTCOME
 
-    def _is_move_winning(self, move: Move) -> bool:
-        if self.get_sign_at(move.row, move.col) != Sign.EMPTY:
-            if self._rules == GameRules.FREESTYLE:
-                return check_freestyle(self._board, move.row, move.col)
-            elif self._rules == GameRules.STANDARD:
-                return check_standard(self._board, move.row, move.col)
-            elif self._rules == GameRules.RENJU:
-                return check_renju(self._board, move.row, move.col)
-            else:
-                return check_caro(self._board, move.row, move.col)
-        else:
-            return False
-
-    def _is_move_forbidden(self, move: Move) -> bool:
-        if self._rules == GameRules.RENJU:
-            return is_forbidden(self._board, move.row, move.col)
-        else:
-            return False
