@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 import numpy as np
 import copy
 from enum import IntEnum, Enum
@@ -90,12 +91,24 @@ class GameRules(IntEnum):
             raise Exception('unknown rules \'' + s + '\'')
 
 
-def is_forbidden(board: np.ndarray, move: Move) -> bool:
-    # currently only deal with square board
+class FoulType(IntEnum):
+    FOUL_3x3 = 1
+    FOUL_4x4 = 2
+    FOUL_6 = 3
+
+    def __str__(self) -> str:
+        if self.value == FoulType.FOUL_3x3:
+            return 'DOUBLE THREE'
+        elif self.value == FoulType.FOUL_4x4:
+            return 'DOUBLE FOUR'
+        else:
+            return 'OVERLINE'
+
+
+def get_foul_type(board: np.ndarray, move: Move) -> Optional[FoulType]:
+    assert board.shape[0] == board.shape[1], 'currently only deal with square board'
     global l1, l2, l3, l4, X, Y
     X, Y = move.row, move.col
-    if len(board) != len(board[0]):
-        return False
     N = len(board)
     x1 = [[0 for i in range(N + 4)] for j in range(N)]
     x2 = [[0 for i in range(N + 4)] for j in range(N)]
@@ -234,7 +247,16 @@ def is_forbidden(board: np.ndarray, move: Move) -> bool:
             X, Y = x0, y0
         return result
 
-    return foulr(X, Y, 0) != 0
+    ft = foulr(X, Y, 0)
+    if ft == 0:
+        return None
+    else:
+        return FoulType(ft)
+
+
+def is_forbidden(board: np.ndarray, move: Move) -> bool:
+    ft = get_foul_type(board, move)
+    return ft is not None
 
 
 def is_winning(rule: GameRules, board: np.ndarray, move: Move) -> int:
@@ -242,8 +264,10 @@ def is_winning(rule: GameRules, board: np.ndarray, move: Move) -> int:
     board_size = board.shape[0]
     x, y = move.row, move.col
 
-    if rule == GameRules.RENJU and move.sign == Sign.BLACK and is_forbidden(board, move):
-        return -1
+    if rule == GameRules.RENJU and move.sign == Sign.BLACK:
+        ft = get_foul_type(board, move)
+        if ft is not None:
+            return -int(ft)
 
     nx = [0, 1, -1, 1]
     ny = [1, 0, 1, 1]

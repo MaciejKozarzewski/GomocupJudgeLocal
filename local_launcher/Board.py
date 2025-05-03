@@ -4,8 +4,8 @@ import copy
 from enum import IntEnum
 from typing import Optional
 from utils import get_value
-from game_rules import Sign, Move, GameRules, is_winning
-from exceptions import MadeIllegalMove
+from game_rules import Sign, Move, GameRules, FoulType, is_winning, is_forbidden, get_foul_type
+from exceptions import MadeIllegalMove, MadeFoulMove
 
 
 class GameOutcome(IntEnum):
@@ -44,6 +44,7 @@ class Board:
 
         self._board = np.zeros((get_value(config, 'rows'), get_value(config, 'cols')), dtype=np.int32)
         self._played_moves = []
+        self._forbidden_moves = []
 
     def to_string(self) -> str:
         result = ''
@@ -103,10 +104,24 @@ class Board:
     def make_move(self, move: Move) -> None:
         if self.is_inside(move.row, move.col) and self.get_sign_at(move.row, move.col) == Sign.EMPTY and \
                 (move.sign == Sign.BLACK or move.sign == Sign.WHITE):
+
+            if self._rules == GameRules.RENJU and move.sign == Sign.BLACK:
+                ft = get_foul_type(np.copy(self._board), move)
+                if ft is not None:
+                    raise MadeFoulMove(move, ft)
+
             self._board[move.row][move.col] = int(move.sign)
             self._played_moves.append(copy.deepcopy(move))
         else:
             raise MadeIllegalMove(move.sign, move)
+
+        self._forbidden_moves = []
+        if self._rules == GameRules.RENJU:
+            for r in range(self.rows()):
+                for c in range(self.cols()):
+                    if self._board[r][c] == 0:
+                        if is_forbidden(np.copy(self._board), Move(r, c, Sign.BLACK)):
+                            self._forbidden_moves.append(Move(r, c, Sign.BLACK))
 
     def is_inside(self, row: int, column: int) -> bool:
         return 0 <= row < self.rows() and 0 <= column < self.cols()
@@ -131,11 +146,9 @@ class Board:
                 return GameOutcome.BLACK_WIN
             else:
                 return GameOutcome.WHITE_WIN
-        elif outcome == -2:
-            if last_move.sign == Sign.BLACK:
-                return GameOutcome.WHITE_WIN
-            else:
-                return GameOutcome.BLACK_WIN
+        elif outcome < 0:
+            assert last_move.sign == Sign.BLACK, 'only black player can make foul move'
+            return GameOutcome.WHITE_WIN
 
         empty_spots = 0
         for row in range(self.rows()):
@@ -153,3 +166,39 @@ class Board:
 
         return GameOutcome.NO_OUTCOME
 
+    def get_forbidden_moves(self) -> list:
+        return self._forbidden_moves
+
+
+# if __name__ == '__main__':
+#     board = np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
+#                       [0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 1, 2, 0],
+#                       [0, 0, 0, 0, 0, 2, 0, 2, 2, 1, 0, 2, 1, 0, 0],
+#                       [0, 0, 0, 0, 0, 1, 1, 1, 0, 2, 1, 2, 0, 0, 0],
+#                       [0, 0, 0, 0, 0, 2, 0, 1, 0, 1, 2, 1, 0, 0, 2],
+#                       [0, 0, 0, 0, 1, 0, 1, 2, 1, 2, 2, 2, 2, 1, 0],
+#                       [0, 0, 0, 0, 0, 2, 0, 2, 1, 2, 2, 1, 1, 1, 1],
+#                       [0, 0, 0, 0, 0, 1, 2, 1, 2, 1, 1, 0, 0, 2, 1],
+#                       [0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 1, 1, 2, 0],
+#                       [0, 0, 0, 0, 0, 0, 1, 0, 2, 2, 2, 1, 2, 0, 0],
+#                       [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 2, 2, 2, 0, 0],
+#                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 0, 0],
+#                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+#                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0]])
+#
+#     for i in range(15):
+#         for j in range(15):
+#             if board[i, j] == 0:
+#                 if is_forbidden(np.copy(board), Move(i, j, Sign.BLACK)):
+#                     print(i, j)
+#
+#     asdf = Board({'rules': 'renju',
+#                   'rows': 15,
+#                   'cols': 15})
+#
+#     asdf._board = board
+#     print(asdf.to_string())
+#     asdf.make_move(Move(3, 4, Sign.WHITE))
+#     print(asdf.get_forbidden_moves())
+#     pass

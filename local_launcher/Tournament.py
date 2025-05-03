@@ -13,7 +13,7 @@ import logging
 from Match import Match
 from Board import Board, Sign, GameOutcome
 from Player import Player
-from exceptions import Timeouted, Crashed, MadeIllegalMove, TooMuchMemory, Interrupted
+from exceptions import Timeouted, Crashed, MadeIllegalMove, TooMuchMemory, Interrupted, MadeFoulMove
 
 
 class GameConfig:
@@ -63,7 +63,7 @@ class PlayingThread(Thread):
         try:
             config.outcome = self._match.play_game()
             config.saved_state = ''
-        except (Timeouted, Crashed, MadeIllegalMove, TooMuchMemory) as e:
+        except (Timeouted, Crashed, MadeFoulMove, MadeIllegalMove, TooMuchMemory) as e:
             logging.warning(str(e))
             config.saved_state = str(e)
             if e.sign == Sign.BLACK:
@@ -82,9 +82,9 @@ class PlayingThread(Thread):
                 self._is_running = False
                 break
             game_record = self._play_game(cfg)
-            game_record.pgn = self._match.generate_pgn()
+            game_record.pgn = self._match.generate_pgn(game_record.outcome)
             game_record.in_progress = False
-            self._manager.finish_gamed(game_record)
+            self._manager.finish_game(game_record)
             time.sleep(5.0)
 
     def cleanup(self) -> None:
@@ -170,9 +170,10 @@ class Tournament:
 
     def _load_pgn(self) -> str:
         result = ''
-        if os.path.exists(self._config['working_dir'] + '/result.pgn'):
-            with open(self._config['working_dir'] + '/result.pgn', 'r') as file:
-                result = file.read()
+        with self._tournament_lock:
+            if os.path.exists(self._config['working_dir'] + '/result.pgn'):
+                with open(self._config['working_dir'] + '/result.pgn', 'r') as file:
+                    result = file.read()
         return result
 
     def get_summary(self) -> str:
@@ -215,7 +216,7 @@ class Tournament:
                     return copy.deepcopy(game)
             return None
 
-    def finish_gamed(self, game: GameConfig) -> None:
+    def finish_game(self, game: GameConfig) -> None:
         with self._tournament_lock:
             self._games[game.index] = game
             self._pgn += game.pgn
@@ -315,7 +316,7 @@ def run_tournament(path: str, draw_boards: bool = False) -> None:
 
 if __name__ == '__main__':
     # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-    run_tournament('/home/maciek/Desktop/tournament/590vs583s/', False)
+    run_tournament('/home/maciek/Desktop/tournament/590vs583r/', True)
     # run_tournament('/home/maciek/Desktop/tournament/policy_vs_value/', False)
     # run_tournament('/home/maciek/Desktop/tournament/big_vs_small_f/')
     exit(0)

@@ -5,6 +5,8 @@ from typing import Union, Optional
 import numpy as np
 import cv2
 
+from game_rules import is_forbidden
+
 
 def parse_action(action: Union[str, Move, list], cut_offset: int = 0) -> str:
     if type(action) == str:
@@ -114,8 +116,8 @@ class Match:
 
     def save_state(self) -> str:
         assert not self._player1.is_on_move() and not self._player2.is_on_move()
-        result = str(round(self._player1.get_time_left(), 3))
-        result += ' ' + str(round(self._player2.get_time_left(), 3))
+        result = str(round(self._player1.get_time_left()[0], 3))
+        result += ' ' + str(round(self._player2.get_time_left()[0], 3))
         for action in self._move_log:
             result += ' ' + parse_action(action)
         return result
@@ -175,8 +177,7 @@ class Match:
         self._player1.end()
         self._player2.end()
 
-    def generate_pgn(self) -> str:
-        outcome = self._board.get_outcome()
+    def generate_pgn(self, outcome: GameOutcome) -> str:
         if outcome == GameOutcome.NO_OUTCOME:
             return ''
         result = '[White \"' + self._get_player(Sign.WHITE).get_name() + '\"]\n'
@@ -219,7 +220,8 @@ class Match:
             cv2.rectangle(self._frame, (0, int((0.5 + 3) * size)), (width, int((0.5 + 3 + 3) * size)), color=(0, 255, 255), thickness=2)
 
         def summarize_player(player: Player, x: int, y: int) -> None:
-            text1 = player.get_name() + ' : ' + str(round(player.get_time_left(), 1)) + 's'
+            time_left = player.get_time_left()
+            text1 = player.get_name() + ' : ' + str(round(time_left[0], 1)) + 's (' + str(round(time_left[1], 1)) + 's)'
             eval = player.get_evaluation()
             text2 = str(int(eval['memory'])) + 'MB'
             text_depth = 'depth = ' + eval['depth']
@@ -236,8 +238,8 @@ class Match:
                 color = (0, 0, 0)
                 thickness = 1
             cv2.circle(self._frame, (int(0.5 * size + y), x - int(1.8 * size)), size * 4 // 10, color, thickness=thickness)
-            cv2.putText(self._frame, text1, (y + size, x - int(1.5 * size)), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
-            cv2.putText(self._frame, text2, (y, x), cv2.QT_FONT_NORMAL, 0.8, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text1, (y + size, x - int(1.5 * size)), cv2.QT_FONT_NORMAL, 0.75, color=(0, 0, 0), thickness=1)
+            cv2.putText(self._frame, text2, (y, x), cv2.QT_FONT_NORMAL, 0.75, color=(0, 0, 0), thickness=1)
 
             split_1 = int(0.3 * self._board.cols() * size)
             split_2 = int(0.65 * self._board.cols() * size)
@@ -263,6 +265,16 @@ class Match:
             x0 = (1 + 6 + last_move.row) * size
             y0 = (1 + last_move.col) * size
             cv2.rectangle(self._frame, (y0, x0), (y0 + size, x0 + size), color=(0, 255, 255), thickness=1)
+
+        '''highlight forbidden moves'''
+        forbidden_moves = self._board.get_forbidden_moves()
+        for fm in forbidden_moves:
+            x0 = (1 + 6 + fm.row) * size + size // 4
+            y0 = (1 + fm.col) * size + size // 4
+            x1 = (1 + 6 + fm.row + 1) * size - size // 4
+            y1 = (1 + fm.col + 1) * size - size // 4
+            cv2.line(self._frame, (y0, x0), (y1, x1), color=(0, 0, 255), thickness=2)
+            cv2.line(self._frame, (y0, x1), (y1, x0), color=(0, 0, 255), thickness=2)
 
         '''draw all moves'''
         moves = self._board.get_played_moves()

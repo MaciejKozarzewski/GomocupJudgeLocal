@@ -2,7 +2,7 @@ import subprocess, shlex
 import psutil
 import copy
 import sys
-from typing import Union, Optional
+from typing import Union, Optional, Tuple
 from queue import Queue, Empty
 from threading import Thread
 import logging
@@ -53,11 +53,14 @@ class Player:
         self._is_engine_running = True
         self._received_messages = []
         self._sent_messages = []
-        self._evaluation = {'memory': '?', 'depth': '?', 'score': '?', 'nodes': '?', 'speed': '?', 'time': '?', 'pv': '?'}
+        self._evaluation = {'memory': '?', 'depth': '?', 'score': '?', 'nodes': '?', 'speed': '?', 'time': '?',
+                            'pv': '?'}
         self._is_now_on_move = False
         self._start_time = time.time()
-        self._name = get_value(config, 'name', self._parse_name())  # engine name can be obtained only after the process has started, obviously...
-        time.sleep(1.0)  # sleep so that all processes are not launched exactly at the same time (might mess up with logfiles, etc.)
+        self._name = get_value(config, 'name',
+                               self._parse_name())  # engine name can be obtained only after the process has started, obviously...
+        time.sleep(
+            1.0)  # sleep so that all processes are not launched exactly at the same time (might mess up with logfiles, etc.)
 
     def _parse_name(self) -> str:
         self._resume()
@@ -79,7 +82,8 @@ class Player:
 
     def _parse_evaluation(self, text: str) -> dict:
         assert text.startswith('MESSAGE ')
-        result = {'memory': self.get_memory(), 'depth': '?', 'score': '?', 'nodes': '?', 'speed': '?', 'time': '?', 'pv': '?'}
+        result = {'memory': self.get_memory(), 'depth': '?', 'score': '?', 'nodes': '?', 'speed': '?', 'time': '?',
+                  'pv': '?'}
         text.replace(', ', ' ')
         text.replace(' | ', ' ')
         text.replace('=', ' ')
@@ -238,11 +242,12 @@ class Player:
             pass
         return result / 1048576.0
 
-    def get_time_left(self) -> float:
+    def get_time_left(self) -> Tuple[float, float]:
         if self._is_now_on_move:
-            return self._time_left - (get_time() - self._start_time)
+            elapsed_time = get_time() - self._start_time
         else:
-            return self._time_left
+            elapsed_time = 0.0
+        return self._time_left - elapsed_time, self._timeout_turn - elapsed_time
 
     def get_evaluation(self) -> dict:
         self._evaluation['memory'] = self.get_memory()

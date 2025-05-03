@@ -1,5 +1,5 @@
 from typing import Union
-from game_rules import Sign, Move
+from game_rules import Sign, Move, FoulType
 
 
 class Timeouted(Exception):
@@ -16,6 +16,14 @@ class Crashed(Exception):
         self.answer = answer
         self.request = request
         super().__init__('crash = responded with \'' + answer + '\' to \'' + request + '\'')
+
+
+class MadeFoulMove(Exception):
+    def __init__(self, move: Move, foul_type: FoulType):
+        self.sign = Sign.BLACK
+        self.move = move
+        self.foul_type = foul_type
+        super().__init__('foul = ' + str(foul_type) + ' at (' + str(move) + ')')
 
 
 class MadeIllegalMove(Exception):
